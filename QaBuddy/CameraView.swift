@@ -37,6 +37,11 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     private let captureFeedback = UIImpactFeedbackGenerator(style: .medium)
     private let errorFeedback = UINotificationFeedbackGenerator()
 
+    // Photo management
+    private let photoManager = PhotoManager()
+    private var currentSessionID = "default_session"
+    private var currentSequenceNumber: Int64 = 1
+
     init() {
         self.initialVolume = createVolumeBaseline()
         super.init(nibName: nil, bundle: nil)
@@ -254,18 +259,36 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             return
         }
 
-        // Convert to UIImage for display/processing
+        // Convert to UIImage for storage
         guard let image = UIImage(data: imageData) else {
             print("Failed to create image from data")
+            errorFeedback.notificationOccurred(.error)
             return
         }
 
-        // For now, just log that photo was captured
-        // In Phase 1, this would save to Core Data and show gallery
-        print("Photo captured successfully: \(image.size.width) x \(image.size.height)")
+        // Save photo using PhotoManager
+        Task {
+            do {
+                let metadata = PhotoMetadata(
+                    sequenceNumber: currentSequenceNumber,
+                    sessionID: currentSessionID,
+                    location: nil, // Can be added later with CLLocationManager
+                    deviceOrientation: UIDevice.current.orientation.description
+                )
 
-        // Additional haptic feedback for successful capture
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                try await photoManager.savePhoto(image: image, metadata: metadata)
+                print("Photo saved successfully! Sequence #\(currentSequenceNumber)")
+
+                // Increment sequence number for next photo
+                currentSequenceNumber += 1
+
+                // Additional haptic feedback for successful save
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } catch {
+                print("Error saving photo to storage: \(error)")
+                errorFeedback.notificationOccurred(.error)
+            }
+        }
     }
 
     // MARK: - Touch Controls
