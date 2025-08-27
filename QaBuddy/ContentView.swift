@@ -6,16 +6,16 @@
 //
 
 import SwiftUI
+import AVFoundation
+import UIKit
+import CoreData
 
 struct ContentView: View {
+    let persistenceController = PersistenceController.shared
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
+        CameraView()
+            .environment(\.managedObjectContext, persistenceController.container.viewContext)
     }
 }
 
