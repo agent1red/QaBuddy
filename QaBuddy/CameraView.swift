@@ -39,8 +39,10 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
 
     // Photo management
     private let photoManager = PhotoManager()
-    private var currentSessionID = "default_session"
-    private var currentSequenceNumber: Int64 = 1
+    private let sequenceManager = SequenceManager()
+
+    // Sequence display overlay
+    private var sequenceOverlayLabel: PaddingLabel?
 
     init() {
         self.initialVolume = createVolumeBaseline()
@@ -60,6 +62,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         setupCamera()
         setupVolumeDetection()
         setupAudioSession()
+        setupSequenceOverlay()
 
         // Generator is reusable
         captureFeedback.prepare()
@@ -179,6 +182,60 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         )
     }
 
+    private func setupSequenceOverlay() {
+        sequenceOverlayLabel = PaddingLabel()
+        guard let label = sequenceOverlayLabel else { return }
+
+        // Aviation-inspired professional styling
+        label.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 36, weight: .bold)
+        label.textAlignment = .center
+        label.numberOfLines = 3  // Enable multiline support
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.7
+        label.layer.cornerRadius = 12
+        label.clipsToBounds = true
+        label.layer.borderWidth = 2
+        label.layer.borderColor = UIColor.white.withAlphaComponent(0.5).cgColor
+
+        // Set padding for the label
+        label.edgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
+
+        view.addSubview(label)
+        updateSequenceOverlay()
+
+        // Position prominently in camera viewfinder (top-left to avoid obstructing subject)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            label.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
+            label.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),    // Increased width
+            label.heightAnchor.constraint(greaterThanOrEqualToConstant: 120)    // Increased height for 3 lines
+        ])
+    }
+
+    private func updateSequenceOverlay() {
+        guard let label = sequenceOverlayLabel else { return }
+
+        // Update the display with current sequence
+        let sequence = sequenceManager.currentSequence
+        let sessionName = sequenceManager.activeSessionName
+
+        // Display format: "Photo\n8\nSession: Pre-flight"
+        let sequenceText = "Photo\n\(sequence)\n\(sessionName.count > 12 ? String(sessionName.prefix(12)) + "..." : sessionName)"
+        label.text = sequenceText
+
+        // Animate the change briefly to draw attention
+        UIView.animate(withDuration: 0.2, animations: {
+            label.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
+        }) { _ in
+            UIView.animate(withDuration: 0.1) {
+                label.transform = CGAffineTransform.identity
+            }
+        }
+    }
+
     private func resumeVolumeDetection() {
         volumeDetectionEnabled = true
         // Reset volume detection baseline
@@ -269,18 +326,27 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         // Save photo using PhotoManager
         Task {
             do {
+                // Get current sequence metadata before incrementing
+                let currentSequence = sequenceManager.currentSequence
+                let sessionMetadata = sequenceManager.getPhotoMetadata(forSequence: currentSequence)
+
                 let metadata = PhotoMetadata(
-                    sequenceNumber: currentSequenceNumber,
-                    sessionID: currentSessionID,
+                    sequenceNumber: sessionMetadata.sequence,
+                    sessionID: sessionMetadata.sessionId,
                     location: nil, // Can be added later with CLLocationManager
                     deviceOrientation: UIDevice.current.orientation.description
                 )
 
                 try await photoManager.savePhoto(image: image, metadata: metadata)
-                print("Photo saved successfully! Sequence #\(currentSequenceNumber)")
+                print("Photo saved successfully! Sequence #\(sessionMetadata.sequence)")
 
                 // Increment sequence number for next photo
-                currentSequenceNumber += 1
+                sequenceManager.incrementSequence()
+
+                // Update the visual sequence display
+                DispatchQueue.main.async {
+                    self.updateSequenceOverlay()
+                }
 
                 // Additional haptic feedback for successful save
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -320,6 +386,25 @@ class VolumeDetectionView: UIView {
         if (notification.object as? UISlider) != nil {
             NotificationCenter.default.post(name: NSNotification.Name(rawValue: "VolumeButtonPressed"), object: nil)
         }
+    }
+}
+
+// MARK: - Padding Label
+
+/// Custom UILabel that supports padding/insets for better text layout
+class PaddingLabel: UILabel {
+    var edgeInsets: UIEdgeInsets = .zero
+
+    override func drawText(in rect: CGRect) {
+        let insetRect = rect.inset(by: edgeInsets)
+        super.drawText(in: insetRect)
+    }
+
+    override var intrinsicContentSize: CGSize {
+        var size = super.intrinsicContentSize
+        size.width += edgeInsets.left + edgeInsets.right
+        size.height += edgeInsets.top + edgeInsets.bottom
+        return size
     }
 }
 
