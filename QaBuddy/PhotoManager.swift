@@ -140,6 +140,60 @@ class PhotoManager: @unchecked Sendable {
          return maxSequence + 1
      }
 
+    /// Renumber photos in a session after deleting a specific sequence number
+    func renumberPhotosAfter(deletionOf deletedSequence: Int64, in sessionID: String) throws {
+        let request = Photo.fetchRequest()
+        request.predicate = NSPredicate(format: "sessionID == %@ AND sequenceNumber > %d", sessionID, deletedSequence)
+        request.sortDescriptors = [NSSortDescriptor(key: "sequenceNumber", ascending: true)]
+
+        let photos = try context.fetch(request)
+
+        // Decrement sequence numbers for photos after the deleted one
+        for photo in photos {
+            photo.sequenceNumber -= 1
+        }
+
+        try context.save()
+
+        print("📝 Renumbered \(photos.count) photos in session '\(sessionID)' after deleting sequence #\(deletedSequence)")
+    }
+
+    /// Renumber all photos in a session to ensure consecutive sequence numbers
+    func renumberSessionPhotos(in sessionID: String) throws {
+        let photos = try fetchPhotos(forSession: sessionID).sorted { $0.sequenceNumber < $1.sequenceNumber }
+
+        var expectedSequence: Int64 = 1
+        for photo in photos {
+            if photo.sequenceNumber != expectedSequence {
+                photo.sequenceNumber = expectedSequence
+                print("🔢 Renumbered photo \(photo.id?.uuidString ?? "unknown") to sequence #\(expectedSequence)")
+            }
+            expectedSequence += 1
+        }
+
+        try context.save()
+    }
+
+    /// Bulk delete photos with renumbering
+    func deletePhotosWithRenumbering(_ photos: [Photo]) async throws {
+        guard !photos.isEmpty else { return }
+
+        // Group photos by session for efficient renumbering
+        let sessionGroups = Dictionary(grouping: photos) { $0.sessionID ?? "unknown" }
+
+        for (sessionID, sessionPhotos) in sessionGroups {
+            // Sort by sequence number in descending order to delete highest first
+            let sortedPhotos = sessionPhotos.sorted { $0.sequenceNumber > $1.sequenceNumber }
+
+            for photo in sortedPhotos {
+                try await deletePhoto(photo)
+            }
+
+            // Renumber remaining photos in this session
+            try renumberSessionPhotos(in: sessionID)
+        }
+    }
+
     // TODO: Uncomment these methods after Core Data model is created:
 
     // MARK: - Image Loading

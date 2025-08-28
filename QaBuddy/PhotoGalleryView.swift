@@ -17,9 +17,24 @@ struct PhotoGalleryView: View {
     @State private var viewMode: ViewMode = .grid
     @State private var selectedPhoto: Photo? = nil
 
+    // Deletion management
+    @State private var deletionManager: PhotoDeletionManager
+    @State private var showingDeleteConfirmation = false
+    @State private var showingBulkDeleteConfirmation = false
+    @State private var photoToDelete: Photo? = nil
+    @State private var selectedPhotosForBulkDelete: Set<NSObject> = []
+    @State private var isBulkSelectionMode = false
+
+
     // Managers
     private let photoManager = PhotoManager()
     private let sequenceManager = SequenceManager()
+
+    init() {
+        _deletionManager = State(initialValue: PhotoDeletionManager(
+            context: PersistenceController.shared.container.viewContext
+        ))
+    }
 
     enum ViewMode {
         case grid
@@ -49,69 +64,180 @@ struct PhotoGalleryView: View {
         GridItem(.flexible(), spacing: 4)
     ]
 
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                // Gallery Content
-                if viewMode == .grid {
-                    ScrollView {
-                        LazyVGrid(columns: gridColumns, spacing: 4) {
-                            // Only show one photo per unique sequence number
-                            let uniquePhotos = Dictionary(grouping: photos) { $0.sequenceNumber }
-                                .compactMapValues { $0.first }
-                                .sorted { $0.key < $1.key }
-                                .map { $0.value }
+    // MARK: - Computed Views
 
-                            ForEach(uniquePhotos, id: \.id) { photo in
-                                PhotoGridItem(
-                                    photo: photo,
-                                    thumbnailImage: photoManager.loadThumbnail(for: photo)
-                                )
-                                .onTapGesture {
+    private var galleryContent: some View {
+        Group {
+            if viewMode == .grid {
+                ScrollView {
+                    LazyVGrid(columns: gridColumns, spacing: 4) {
+                        // Only show one photo per unique sequence number
+                        let uniquePhotos = Dictionary(grouping: photos) { $0.sequenceNumber }
+                            .compactMapValues { $0.first }
+                            .sorted { $0.key < $1.key }
+                            .map { $0.value }
+
+                        ForEach(uniquePhotos, id: \.id) { photo in
+                            PhotoGridItem(
+                                photo: photo,
+                                thumbnailImage: photoManager.loadThumbnail(for: photo),
+                                isBulkSelectionMode: isBulkSelectionMode,
+                                isSelected: selectedPhotosForBulkDelete.contains(photo),
+                                onSelectionToggle: { togglePhotoSelection(photo) },
+                                onDeleteSingle: { confirmDelete(for: photo) }
+                            )
+                            .onTapGesture {
+                                if isBulkSelectionMode {
+                                    togglePhotoSelection(photo)
+                                } else {
                                     selectedPhoto = photo
                                 }
                             }
                         }
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 8)
                     }
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 1) {
-                            ForEach(photos, id: \.id) { photo in
-                                PhotoListItem(photo: photo)
-                                    .onTapGesture {
-                                        selectedPhoto = photo
-                                    }
-                            }
-                        }
-                        .padding(.vertical, 8)
-                    }
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 8)
                 }
-
-                // Loading overlay
-                if isLoading {
-                    ProgressView("Loading photos...")
-                        .progressViewStyle(.circular)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.black.opacity(0.1))
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 1) {
+                        ForEach(photos, id: \.id) { photo in
+                            PhotoListItem(photo: photo)
+                                .onTapGesture {
+                                    selectedPhoto = photo
+                                }
+                        }
+                    }
+                    .padding(.vertical, 8)
                 }
             }
-            .navigationTitle(photoCountDisplay)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+        }
+    }
+
+    private var loadingOverlay: some View {
+        Group {
+            if isLoading {
+                ProgressView("Loading photos...")
+                    .progressViewStyle(.circular)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black.opacity(0.1))
+            }
+        }
+    }
+
+    private var toolbarItems: some ToolbarContent {
+        Group {
+            ToolbarItem(placement: .topBarLeading) {
+                if isBulkSelectionMode {
                     Button(action: {
                         withAnimation {
-                            viewMode = viewMode == .grid ? .list : .grid
+                            exitBulkSelectionMode()
                         }
                     }) {
-                        Image(systemName: viewMode == .grid ? "list.bullet" : "square.grid.3x3.fill")
+                        Text("Cancel")
+                            .foregroundColor(.blue)
+                    }
+                } else {
+                    Button(action: {
+                        withAnimation {
+                            enterBulkSelectionMode()
+                        }
+                    }) {
+                        Text("Select")
+                            .foregroundColor(.blue)
+                    }
+                }
+            }
+
+            ToolbarItem(placement: .principal) {
+                if isBulkSelectionMode {
+                    let uniquePhotos = getUniquePhotos()
+                    Button(action: {
+                        selectAllPhotos()
+                    }) {
+                        Text(selectedPhotosForBulkDelete.count == uniquePhotos.count ? "Deselect All" : "Select All")
+                            .foregroundColor(.blue)
+                            .font(.headline)
+                    }
+                }
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                if isBulkSelectionMode {
+                    Text("\(selectedPhotosForBulkDelete.count) Selected")
+                        .foregroundColor(.primary)
+                        .font(.body)
+                } else if viewMode == .grid {
+                    Button(action: {
+                        withAnimation {
+                            viewMode = .list
+                        }
+                    }) {
+                        Image(systemName: "list.bullet")
+                            .foregroundColor(.primary)
+                    }
+                } else {
+                    Button(action: {
+                        withAnimation {
+                            viewMode = .grid
+                        }
+                    }) {
+                        Image(systemName: "square.grid.3x3.fill")
                             .foregroundColor(.primary)
                     }
                 }
             }
-            // Photo detail navigation
+        }
+    }
+
+    private var bulkDeleteActionBar: some View {
+        Group {
+            if isBulkSelectionMode && !selectedPhotosForBulkDelete.isEmpty {
+                VStack(spacing: 0) {
+                    Divider()
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            showingBulkDeleteConfirmation = true
+                        }) {
+                            HStack {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.white)
+                                Text("Delete \(selectedPhotosForBulkDelete.count) \(selectedPhotosForBulkDelete.count == 1 ? "Photo" : "Photos")")
+                                    .foregroundColor(.white)
+                                    .font(.headline)
+                            }
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 20)
+                            .background(Color.red)
+                            .cornerRadius(12)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 16)
+                    .background(Color(.secondarySystemBackground))
+                }
+            }
+        }
+    }
+
+
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                galleryContent
+                loadingOverlay
+            }
+            .navigationTitle(photoCountDisplay)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                toolbarItems
+            }
+            .safeAreaInset(edge: .bottom) {
+                bulkDeleteActionBar
+            }
             .navigationDestination(item: $selectedPhoto) { photo in
                 PhotoDetailView(
                     photos: photos,
@@ -120,6 +246,27 @@ struct PhotoGalleryView: View {
                 )
             }
         }
+        .alert("Delete Photo", isPresented: $showingDeleteConfirmation, presenting: photoToDelete) { photo in
+            Button("Delete", role: .destructive) {
+                Task {
+                    await performDelete(photo: photo)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { photo in
+            Text("Are you sure you want to delete Photo \(photo.sequenceNumber)?\n\n**PERMANENT DELETION:** This will permanently delete the photo file and cannot be undone.")
+        }
+        .alert("Delete Photos", isPresented: $showingBulkDeleteConfirmation) {
+            Button("Delete", role: .destructive) {
+                Task {
+                    await performBulkDelete()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to delete \(selectedPhotosForBulkDelete.count) \(selectedPhotosForBulkDelete.count == 1 ? "photo" : "photos")?\n\n**PERMANENT DELETION:** This will permanently delete all selected photo files and cannot be undone.")
+        }
+
         .task {
             await loadPhotos()
         }
@@ -127,6 +274,68 @@ struct PhotoGalleryView: View {
             await loadPhotos()
         }
     }
+
+    // MARK: - Bulk Selection Methods
+
+    private func enterBulkSelectionMode() {
+        isBulkSelectionMode = true
+        selectedPhotosForBulkDelete.removeAll()
+    }
+
+    private func exitBulkSelectionMode() {
+        isBulkSelectionMode = false
+        selectedPhotosForBulkDelete.removeAll()
+    }
+
+    private func togglePhotoSelection(_ photo: Photo) {
+        if selectedPhotosForBulkDelete.contains(photo) {
+            selectedPhotosForBulkDelete.remove(photo)
+        } else {
+            selectedPhotosForBulkDelete.insert(photo)
+        }
+    }
+
+    // MARK: - Deletion Methods
+
+    private func performBulkDelete() async {
+        // Convert selected photos to array
+        let photosToDelete = Array(selectedPhotosForBulkDelete.compactMap { $0 as? Photo })
+
+        do {
+            try await deletionManager.deletePhotos(photosToDelete)
+
+            // Exit bulk selection mode and refresh
+            exitBulkSelectionMode()
+            await loadPhotos()
+
+            print("✅ \(photosToDelete.count) photos deleted permanently")
+        } catch {
+            print("❌ Error deleting photos: \(error)")
+
+            // Reset UI state on error to avoid stuck condition
+            exitBulkSelectionMode()
+        }
+    }
+
+    private func confirmDelete(for photo: Photo) {
+        photoToDelete = photo
+        showingDeleteConfirmation = true
+    }
+
+    private func performDelete(photo: Photo) async {
+        do {
+            try await deletionManager.deletePhoto(photo)
+
+            // Refresh photos after deletion
+            await loadPhotos()
+
+            print("✅ Photo \(photo.sequenceNumber) deleted permanently")
+        } catch {
+            print("❌ Error deleting photo: \(error)")
+        }
+    }
+
+
 
     private func loadPhotos() async {
         isLoading = true
@@ -139,6 +348,25 @@ struct PhotoGalleryView: View {
         }
         isLoading = false
     }
+
+    // MARK: - Helper Methods
+
+    private func getUniquePhotos() -> [Photo] {
+        Dictionary(grouping: photos) { $0.sequenceNumber }
+            .compactMapValues { $0.first }
+            .map { $0.value }
+    }
+
+    private func selectAllPhotos() {
+        let uniquePhotos = getUniquePhotos()
+        if selectedPhotosForBulkDelete.count == uniquePhotos.count {
+            // Deselect all
+            selectedPhotosForBulkDelete.removeAll()
+        } else {
+            // Select all
+            selectedPhotosForBulkDelete.formUnion(Set(uniquePhotos))
+        }
+    }
 }
 
 // MARK: - Photo Grid Item
@@ -146,36 +374,56 @@ struct PhotoGalleryView: View {
 struct PhotoGridItem: View {
     let photo: Photo
     let thumbnailImage: UIImage?
+    let isBulkSelectionMode: Bool
+    let isSelected: Bool
+    let onSelectionToggle: () -> Void
+    let onDeleteSingle: () -> Void
 
     @State private var imageOpacity: Double = 0.0
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            // Photo thumbnail
-            if let image = thumbnailImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(height: 120)
-                    .clipped()
-                    .opacity(imageOpacity)
-                    .onAppear {
-                        withAnimation(.easeIn(duration: 0.2)) {
-                            imageOpacity = 1.0
-                        }
-                    }
-            } else {
-                // Placeholder for missing thumbnails
+        ZStack(alignment: .topLeading) {
+            // Photo thumbnail with overlay
+            mainContent
+
+            // Checkbox overlay (only when in bulk selection mode)
+            if isBulkSelectionMode {
                 ZStack {
-                    Color.gray.opacity(0.3)
-                    Image(systemName: "photo")
-                        .foregroundColor(.gray)
+                    // Semi-transparent overlay when selected
+                    if isSelected {
+                        Color.blue.opacity(0.3)
+                            .frame(height: 120)
+                            .cornerRadius(8)
+                    }
+
+                    // Checkbox button
+                    VStack {
+                        HStack {
+                            Spacer()
+                            ZStack {
+                                Circle()
+                                    .fill(Color.white.opacity(0.9))
+                                    .frame(width: 24, height: 24)
+                                    .shadow(radius: 2)
+
+                                if isSelected {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.blue)
+                                        .font(.title2)
+                                } else {
+                                    Circle()
+                                        .stroke(Color.gray.opacity(0.8), lineWidth: 2)
+                                        .frame(width: 20, height: 20)
+                                }
+                            }
+                            .padding(8)
+                        }
+                        Spacer()
+                    }
                 }
-                .frame(height: 120)
-                .aspectRatio(3/4, contentMode: .fill)
             }
 
-            // Sequence number overlay (prominently displayed)
+            // Sequence number overlay (bottom-left corner)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Photo")
                     .font(.caption)
@@ -193,6 +441,37 @@ struct PhotoGridItem: View {
             .background(Color.black.opacity(0.6))
             .clipShape(Capsule())
             .padding(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        }
+    }
+
+    private var mainContent: some View {
+        Group {
+            if let image = thumbnailImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(height: 120)
+                    .clipped()
+                    .opacity(imageOpacity)
+                    .cornerRadius(8)
+                    .onAppear {
+                        withAnimation(.easeIn(duration: 0.2)) {
+                            imageOpacity = 1.0
+                        }
+                    }
+            } else {
+                // Placeholder for missing thumbnails
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.3))
+                    Image(systemName: "photo")
+                        .foregroundColor(.gray)
+                        .font(.largeTitle)
+                }
+                .frame(height: 120)
+                .aspectRatio(3/4, contentMode: .fit)
+            }
         }
     }
 }
@@ -246,6 +525,8 @@ struct PhotoListItem: View {
         .contentShape(Rectangle())
     }
 }
+
+
 
 #Preview {
     let persistence = PersistenceController()
