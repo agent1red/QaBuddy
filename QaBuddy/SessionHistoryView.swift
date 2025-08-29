@@ -14,6 +14,7 @@ struct SessionHistoryView: View {
     @State private var isLoading = true
     @State private var showingDeleteConfirmation = false
     @State private var sessionToDelete: Session?
+    @State private var sessionPhotoCounts: [String: Int64] = [:]
 
     var body: some View {
         NavigationStack {
@@ -144,13 +145,15 @@ struct SessionHistoryView: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
 
-                    // Inspector & Photos
+                    // Inspector & Photos (with real-time count)
                     HStack(spacing: 12) {
                         if let inspector = session.inspectorName {
                             Label(inspector, systemImage: "person.fill")
                         }
 
-                        Label("\(session.totalPhotos) photos", systemImage: "photo.stack.fill")
+                        // Get actual photo count from our calculated values
+                        let photoCount = session.id.flatMap { sessionPhotoCounts[$0.uuidString] } ?? 0
+                        Label("\(photoCount) photos", systemImage: "photo.stack.fill")
                     }
                     .font(.caption)
                     .foregroundColor(.secondary.opacity(0.8))
@@ -189,7 +192,14 @@ struct SessionHistoryView: View {
                 } else {
                     Button("Resume") {
                         Task {
-                            await sessionManager.switchToSession(session)
+                            let success = await sessionManager.switchToSession(session)
+                            if success {
+                                // Refresh the view to show updated state
+                                await loadSessions()
+                                print("✅ Successfully resumed session: \(session.name ?? "Unknown")")
+                            } else {
+                                print("❌ Failed to resume session")
+                            }
                         }
                     }
                     .buttonStyle(.bordered)
@@ -227,7 +237,21 @@ struct SessionHistoryView: View {
     private func loadSessions() async {
         isLoading = true
         await sessionManager.preloadSessions()
+
+        // Calculate real photo counts for all sessions
+        var counts: [String: Int64] = [:]
+        for session in sessionManager.allSessions {
+            if let sessionId = session.id?.uuidString {
+                let photoCount = await sessionManager.calculateRealPhotoCount(for: session)
+                counts[sessionId] = photoCount
+
+                // Sync the photo count in the database
+                _ = await sessionManager.syncSessionPhotoCount(session)
+            }
+        }
+
         await MainActor.run {
+            sessionPhotoCounts = counts
             isLoading = false
         }
     }
@@ -283,4 +307,3 @@ struct SessionHistoryView_Previews: PreviewProvider {
         SessionHistoryView()
     }
 }
-

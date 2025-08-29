@@ -10,7 +10,7 @@ import CoreData
 import UIKit
 
 /// Manages permanent photo deletion operations with automatic renumbering
-class PhotoDeletionManager: @unchecked Sendable {
+class PhotoDeletionManager {
     private let context: NSManagedObjectContext
     private let photoManager: PhotoManager
     private let sequenceManager: SequenceManager
@@ -41,32 +41,25 @@ class PhotoDeletionManager: @unchecked Sendable {
         // Sort by sequence number for proper renumbering
         let sortedPhotos = photos.sorted { $0.sequenceNumber < $1.sequenceNumber }
 
-        // Perform all operations in a single transaction
-        try await context.perform { [weak self] in
-            guard let self = self else { return }
-
+        // Perform all operations on MainActor (Core Data is not Sendable)
+        try await MainActor.run {
             // Delete all photos from database and files
             for photo in sortedPhotos {
                 print("🗑️ Deleting photo \(photo.sequenceNumber) from session \(photo.sessionID ?? "unknown")")
 
                 // Delete files immediately
-                self.deletePhotoFiles(photo)
+                deletePhotoFiles(photo)
 
                 // Delete database record
                 context.delete(photo)
 
                 // Renumber subsequent photos in this session
-                try self.renumberPhotosAfter(deletionOf: photo.sequenceNumber, in: photo.sessionID ?? "unknown")
+                try renumberPhotosAfter(deletionOf: photo.sequenceNumber, in: photo.sessionID ?? "unknown")
             }
-        }
 
-        // Save all changes in a single transaction
-        do {
+            // Save all changes in a single transaction
             try context.save()
             print("✅ Permanently deleted \(sortedPhotos.count) photos - no recovery possible")
-        } catch {
-            print("❌ Error saving deletion changes: \(error)")
-            throw error
         }
     }
 

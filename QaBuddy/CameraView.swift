@@ -43,7 +43,9 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     // Photo management
     private let photoManager = PhotoManager()
     private let sessionManager = SessionManager.shared
-    private let sequenceManager = SequenceManager() // Keep for migration
+
+    private var sessionObserver: NSObjectProtocol?
+    private let sequenceManager = SequenceManager() // Keep for migration and sequence number generation
 
     // Sequence display overlay
     private var sequenceOverlayLabel: PaddingLabel?
@@ -228,20 +230,30 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     private func updateSequenceOverlay() {
         guard let label = sequenceOverlayLabel else { return }
 
-        // Update the display with current sequence
-        let sequence = sequenceManager.currentSequence
-        let sessionName = sequenceManager.activeSessionName
+        // Update the display with current sequence and session info
+        Task {
+            let sequence = sequenceManager.currentSequence
 
-        // Display format: "Photo\n8\nSession: Pre-flight"
-        let sequenceText = "Photo\n\(sequence)\n\(sessionName.count > 12 ? String(sessionName.prefix(12)) + "..." : sessionName)"
-        label.text = sequenceText
+            // Get real session info asynchronously
+            let sessionInfo = await sessionManager.getCurrentSessionInfo()
+            let sessionName = sessionManager.activeSession?.name ?? "Default Session"
 
-        // Animate the change briefly to draw attention
-        UIView.animate(withDuration: 0.2, animations: {
-            label.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
-        }) { _ in
-            UIView.animate(withDuration: 0.1) {
-                label.transform = CGAffineTransform.identity
+            await MainActor.run {
+                // Use real session info instead of old sequence manager
+                let displayName = sessionName.count > 12 ? String(sessionName.prefix(12)) + "..." : sessionName
+
+                // Display format: "Photo\n8\nSession Name\n(Inspection Type • Tail)"
+                let sequenceText = "Photo\n\(sequence)\n\(displayName)"
+                label.text = sequenceText
+
+                // Animate the change briefly to draw attention
+                UIView.animate(withDuration: 0.2, animations: {
+                    label.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
+                }) { _ in
+                    UIView.animate(withDuration: 0.1) {
+                        label.transform = CGAffineTransform.identity
+                    }
+                }
             }
         }
     }
@@ -333,28 +345,38 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             return
         }
 
-        // Save photo using PhotoManager
+        // Save photo using PhotoManager with new SessionManager
         Task {
             do {
-                // Get current sequence metadata before incrementing
-                let currentSequence = sequenceManager.currentSequence
-                let sessionMetadata = sequenceManager.getPhotoMetadata(forSequence: currentSequence)
+                // Get active session info for photo metadata
+                let activeSessionId = sessionManager.activeSessionIdString ?? "default-session"
+
+                // Use old sequence manager for current sequence number within this session
+                let currentSessionSequence = sequenceManager.currentSequence
 
                 let metadata = PhotoMetadata(
-                    sequenceNumber: sessionMetadata.sequence,
-                    sessionID: sessionMetadata.sessionId,
+                    sequenceNumber: currentSessionSequence,
+                    sessionID: activeSessionId,
                     location: nil, // Can be added later with CLLocationManager
                     deviceOrientation: UIDevice.current.orientation.description
                 )
 
                 try await photoManager.savePhoto(image: image, metadata: metadata)
 
+                // Increment photo count in the new SessionManager (not sequence count)
+                await sessionManager.incrementPhotoCount()
+
                 // Auto-save session data with recovery checkpoint
                 await sessionManager.autoSave()
 
-                print("Photo saved successfully! Sequence #\(sessionMetadata.sequence)")
+                // Update camera view header with new photo count
+                await MainActor.run {
+                    self.updateSessionHeader()
+                }
 
-                // Increment sequence number for next photo
+                print("Photo saved successfully! Session sequence #\(currentSessionSequence)")
+
+                // Increment sequence number for next photo in this session
                 sequenceManager.incrementSequence()
 
                 // Update the visual sequence display
@@ -417,33 +439,38 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         updateSessionHeader()
 
         // Add tap gesture for session management
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleSessionHeaderTapped(_:)))
-headerView.addGestureRecognizer(tapGesture)
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(sessionHeaderTapped))
+        headerView.addGestureRecognizer(tapGesture)
         headerView.isUserInteractionEnabled = true
     }
 
     private func updateSessionHeader() {
         guard let headerLabel = sessionHeaderLabel else { return }
 
-        // Get session info from the new SessionManager
-        let sessionInfo = sessionManager.currentSessionInfo
+        // Use async method to get real-time session info with accurate photo counts
+        Task {
+            let sessionInfo = await sessionManager.getCurrentSessionInfo()
 
-        // Update header text with aviation-appropriate formatting
-        if sessionInfo == "No Active Session" {
-            headerLabel.text = "Tap to Start Inspection"
-            headerLabel.textColor = .orange
-        } else {
-            headerLabel.text = "📸 \(sessionInfo)"
-            headerLabel.textColor = .white
+            await MainActor.run {
+                // Update header text with aviation-appropriate formatting
+                if sessionInfo == "No Active Session" {
+                    headerLabel.text = "Tap to Start Inspection"
+                    headerLabel.textColor = .orange
+                } else {
+                    headerLabel.text = "📸 \(sessionInfo)"
+                    headerLabel.textColor = .white
+                }
+
+                // Update header visibility
+                sessionHeaderView?.isHidden = false
+            }
         }
-
-        // Update header visibility
-        sessionHeaderView?.isHidden = false
     }
 
-   @objc private func handleSessionHeaderTapped(_ sender: UITapGestureRecognizer) {
-    tabSwitchHandler?("gallery")
-}
+    @objc private func sessionHeaderTapped() {
+        // Navigate to session management (Gallery tab)
+        tabSwitchHandler?("Gallery")
+    }
 
     // MARK: - Touch Controls
 

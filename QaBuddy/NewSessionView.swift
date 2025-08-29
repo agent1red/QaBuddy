@@ -15,6 +15,7 @@ struct NewSessionView: View {
     @State private var selectedInspectionType: InspectionType = .preFlight
     @State private var inspectorName: String = ""
     @State private var isCreating = false
+    @State private var showInspectorPicker = false
 
     // FAA Standard Aircraft Registration formats
     private let tailNumberPatterns = [
@@ -85,7 +86,7 @@ struct NewSessionView: View {
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
                 .keyboardType(.asciiCapable)
-                .onChange(of: aircraftTailNumber) { newValue in
+                .onChange(of: aircraftTailNumber) { oldValue, newValue in
                     aircraftTailNumber = formatTailNumber(newValue.uppercased())
                 }
 

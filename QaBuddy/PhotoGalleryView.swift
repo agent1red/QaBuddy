@@ -10,12 +10,14 @@ import CoreData
 
 struct PhotoGalleryView: View {
     @Environment(\.managedObjectContext) private var viewContext
+    @ObservedObject var sessionManager = SessionManager.shared
 
     // State management
     @State private var photos: [Photo] = []
     @State private var isLoading = false
     @State private var viewMode: ViewMode = .grid
     @State private var selectedPhoto: Photo? = nil
+    @State private var showingSessionHistory = false
 
     // Deletion management
     @State private var deletionManager: PhotoDeletionManager
@@ -25,10 +27,8 @@ struct PhotoGalleryView: View {
     @State private var selectedPhotosForBulkDelete: Set<NSObject> = []
     @State private var isBulkSelectionMode = false
 
-
     // Managers
     private let photoManager = PhotoManager()
-    private let sequenceManager = SequenceManager()
 
     init() {
         _deletionManager = State(initialValue: PhotoDeletionManager(
@@ -54,7 +54,12 @@ struct PhotoGalleryView: View {
     }
 
     private var currentSessionName: String {
-        sequenceManager.activeSessionName
+        // Use new SessionManager for active session info
+        Task {
+            let sessionInfo = await sessionManager.getCurrentSessionInfo()
+            return sessionInfo == "No Active Session" ? "All Photos" : sessionInfo
+        }
+        return sessionManager.activeSession?.name ?? "All Photos"
     }
 
     // Grid columns
@@ -230,7 +235,7 @@ struct PhotoGalleryView: View {
                 galleryContent
                 loadingOverlay
             }
-            .navigationTitle(photoCountDisplay)
+            .navigationTitle(currentSessionName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 toolbarItems
@@ -340,11 +345,19 @@ struct PhotoGalleryView: View {
     private func loadPhotos() async {
         isLoading = true
         do {
-            // Load photos sorted by sequence number (most recent first)
-            photos = try photoManager.fetchAllPhotos()
+            // Load photos based on session filtering
+            if let activeSessionId = sessionManager.activeSessionIdString {
+                // Load photos for active session only
+                photos = try photoManager.fetchPhotos(forSession: activeSessionId)
+                print("📸 Loaded \(photos.count) photos for active session: \(activeSessionId)")
+            } else {
+                // No active session - show all photos
+                photos = try photoManager.fetchAllPhotos()
+                print("📸 Loaded all \(photos.count) photos (no active session)")
+            }
         } catch {
-            print("Error loading photos: \(error)")
-            // Could show error alert here
+            print("❌ Error loading photos: \(error)")
+            photos = []
         }
         isLoading = false
     }
