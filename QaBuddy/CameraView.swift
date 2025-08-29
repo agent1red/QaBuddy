@@ -21,6 +21,9 @@ struct CameraView: UIViewControllerRepresentable {
 }
 
 class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
+    /// Handler for tab switching requests
+    var tabSwitchHandler: ((String) -> Void)?
+
     private let captureSession = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private var photoOutput: AVCapturePhotoOutput?
@@ -39,10 +42,15 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
 
     // Photo management
     private let photoManager = PhotoManager()
-    private let sequenceManager = SequenceManager()
+    private let sessionManager = SessionManager.shared
+    private let sequenceManager = SequenceManager() // Keep for migration
 
     // Sequence display overlay
     private var sequenceOverlayLabel: PaddingLabel?
+
+    // Session header overlay
+    private var sessionHeaderView: UIView?
+    private var sessionHeaderLabel: UILabel?
 
     init() {
         self.initialVolume = createVolumeBaseline()
@@ -63,6 +71,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         setupVolumeDetection()
         setupAudioSession()
         setupSequenceOverlay()
+        setupSessionHeader()
 
         // Generator is reusable
         captureFeedback.prepare()
@@ -154,6 +163,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         previewLayer?.frame = view.bounds
+        updateSessionHeader()
     }
 
     private func setupAudioSession() {
@@ -338,6 +348,10 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
                 )
 
                 try await photoManager.savePhoto(image: image, metadata: metadata)
+
+                // Auto-save session data with recovery checkpoint
+                await sessionManager.autoSave()
+
                 print("Photo saved successfully! Sequence #\(sessionMetadata.sequence)")
 
                 // Increment sequence number for next photo
@@ -356,6 +370,80 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             }
         }
     }
+
+    // MARK: - Session Header Management
+
+    private func setupSessionHeader() {
+        // Create session header view
+        sessionHeaderView = UIView()
+        guard let headerView = sessionHeaderView else { return }
+
+        headerView.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        headerView.layer.cornerRadius = 8
+        headerView.layer.borderWidth = 1
+        headerView.layer.borderColor = UIColor.white.withAlphaComponent(0.3).cgColor
+
+        // Create header label
+        sessionHeaderLabel = UILabel()
+        guard let headerLabel = sessionHeaderLabel else { return }
+
+        headerLabel.textColor = .white
+        headerLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        headerLabel.numberOfLines = 1
+        headerLabel.adjustsFontSizeToFitWidth = true
+        headerLabel.minimumScaleFactor = 0.8
+        headerLabel.textAlignment = .left
+
+        headerView.addSubview(headerLabel)
+        view.addSubview(headerView)
+
+        headerLabel.translatesAutoresizingMaskIntoConstraints = false
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+
+        // Layout constraints
+        NSLayoutConstraint.activate([
+            // Header view position (top center, below safe area)
+            headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            headerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            headerView.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.8),
+            headerView.heightAnchor.constraint(equalToConstant: 44),
+
+            // Header label position inside view
+            headerLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+            headerLabel.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -12),
+            headerLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+        ])
+
+        updateSessionHeader()
+
+        // Add tap gesture for session management
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleSessionHeaderTapped(_:)))
+headerView.addGestureRecognizer(tapGesture)
+        headerView.isUserInteractionEnabled = true
+    }
+
+    private func updateSessionHeader() {
+        guard let headerLabel = sessionHeaderLabel else { return }
+
+        // Get session info from the new SessionManager
+        let sessionInfo = sessionManager.currentSessionInfo
+
+        // Update header text with aviation-appropriate formatting
+        if sessionInfo == "No Active Session" {
+            headerLabel.text = "Tap to Start Inspection"
+            headerLabel.textColor = .orange
+        } else {
+            headerLabel.text = "📸 \(sessionInfo)"
+            headerLabel.textColor = .white
+        }
+
+        // Update header visibility
+        sessionHeaderView?.isHidden = false
+    }
+
+   @objc private func handleSessionHeaderTapped(_ sender: UITapGestureRecognizer) {
+    tabSwitchHandler?("gallery")
+}
 
     // MARK: - Touch Controls
 
