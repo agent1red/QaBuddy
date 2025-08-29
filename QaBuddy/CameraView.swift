@@ -469,7 +469,16 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
 
     @objc private func sessionHeaderTapped() {
         // Navigate to session management (Gallery tab)
-        tabSwitchHandler?("Gallery")
+        print("🔄 Session header tapped - requesting Gallery tab")
+        if sessionManager.activeSession != nil {
+            // If we have an active session, switch to gallery
+            tabSwitchHandler?("gallery")
+            print("✅ Switching to Gallery tab (active session)")
+        } else {
+            // If no active session, switch to sessions tab to create one
+            tabSwitchHandler?("sessions")
+            print("✅ Switching to Sessions tab (no active session)")
+        }
     }
 
     // MARK: - Touch Controls

@@ -9,6 +9,7 @@ import SwiftUI
 struct SessionHistoryView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var sessionManager = SessionManager.shared
+    var onReturnToGallery: (() -> Void)?
 
     @State private var showingNewSession = false
     @State private var isLoading = true
@@ -185,7 +186,10 @@ struct SessionHistoryView: View {
             HStack(spacing: 12) {
                 if isActive {
                     Button("View Gallery") {
-                        dismiss()
+                        print("🔄 SessionHistoryView: View Gallery clicked for active session")
+                        dismiss() // Close the sheet
+                        // Call callback to switch to gallery tab
+                        onReturnToGallery?()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)

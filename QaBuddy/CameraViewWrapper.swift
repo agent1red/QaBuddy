@@ -24,18 +24,31 @@ struct CameraViewWrapper: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {
         // Update if needed
+        if let cameraController = uiViewController.viewControllers.first as? CameraViewController {
+            cameraController.tabSwitchHandler = { action in
+                handleTabSwitch(action: action)
+            }
+        }
     }
 
     /// Handle navigation actions from the CameraViewController
     private func handleTabSwitch(action: String) {
+        print("🔄 CameraViewWrapper: Switching tab to: \(action)")
         switch action {
         case "gallery":
             // Switch to gallery tab
             selectedTab = 1
+            print("✅ Switched to Gallery tab (1)")
         case "sessions":
             // Switch to sessions tab
             selectedTab = 2
+            print("✅ Switched to Sessions tab (2)")
+        case "camera":
+            // Switch to camera tab
+            selectedTab = 0
+            print("✅ Switched to Camera tab (0)")
         default:
+            print("⚠️ Unknown tab switch action: \(action)")
             break
         }
     }

@@ -14,6 +14,8 @@ struct ContentView: View {
     @State private var selectedTab = 0
     @State private var showingNewSession = false
     @State private var showingSessionHistory = false
+    @State private var totalSessions: Int = 0
+    @State private var activeSessionCount: Int = 0
 
     let persistenceController = PersistenceController.shared
 
@@ -49,7 +51,7 @@ struct ContentView: View {
                 HStack(spacing: 20) {
                     // Quick Stats
                     VStack {
-                        Text("\(SessionManager.shared.allSessions.count)")
+                        Text("\(totalSessions)")
                             .font(.title)
                             .foregroundColor(.blue)
                         Text("Total Sessions")
@@ -58,7 +60,7 @@ struct ContentView: View {
                     }
 
                     VStack {
-                        Text("\(SessionManager.shared.activeSession != nil ? "1" : "0")")
+                        Text("\(activeSessionCount)")
                             .font(.title)
                             .foregroundColor(.green)
                         Text("Active Session")
@@ -73,13 +75,15 @@ struct ContentView: View {
                 // Action Buttons
                 VStack(spacing: 16) {
                     Button("Manage Sessions") {
+                        print("🔗 Opening Session History")
                         showingSessionHistory = true
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
 
-                    Button(action: {
+                        Button(action: {
                         if let activeSession = SessionManager.shared.activeSession {
+                            print("🔄 Completing current session: \(activeSession.name ?? "Unknown")")
                             let alertController = UIAlertController(
                                 title: "End Current Session?",
                                 message: "Current session '\(activeSession.name ?? "")' will be completed and a new one can be started.",
@@ -88,7 +92,9 @@ struct ContentView: View {
 
                             alertController.addAction(UIAlertAction(title: "End Session", style: .destructive) { _ in
                                 Task {
-                                    SessionManager.shared.updateSessionStatus(activeSession, to: .completed)
+                                    await SessionManager.shared.updateSessionStatus(activeSession, to: .completed)
+                                    await updateSessionCounters() // Refresh counters after session change
+                                    print("✅ Active session completed")
                                 }
                             })
 
@@ -97,9 +103,12 @@ struct ContentView: View {
                             // Present alert (this requires access to a UIViewController)
                             // For now, just complete the session
                             Task {
-                                SessionManager.shared.updateSessionStatus(activeSession, to: .completed)
+                                await SessionManager.shared.updateSessionStatus(activeSession, to: .completed)
+                                await updateSessionCounters() // Refresh counters after session change
+                                print("✅ Active session completed")
                             }
                         } else {
+                            print("🔗 Opening New Session creation")
                             showingNewSession = true
                         }
                     }) {
@@ -127,13 +136,33 @@ struct ContentView: View {
             NewSessionView()
         }
         .sheet(isPresented: $showingSessionHistory) {
-            SessionHistoryView()
+            SessionHistoryView(onReturnToGallery: {
+                print("🔄 Callback: Switching to Gallery tab from SessionHistoryView")
+                selectedTab = 1 // Switch to Gallery tab
+            })
         }
         .onAppear {
             // Load sessions on app launch
             Task {
-                await SessionManager.shared.preloadSessions()
+                await updateSessionCounters()
             }
+        }
+    }
+
+    // MARK: - Helper Methods
+
+    private func updateSessionCounters() async {
+        // Preload sessions first
+        await SessionManager.shared.preloadSessions()
+
+        // Update counters with accurate data
+        let allSessions = await SessionManager.shared.fetchAllSessions()
+        let activeSessionCount = SessionManager.shared.activeSession != nil ? 1 : 0
+
+        await MainActor.run {
+            self.totalSessions = allSessions.count
+            self.activeSessionCount = activeSessionCount
+            print("📊 Updated session counters - Total: \(totalSessions), Active: \(activeSessionCount)")
         }
     }
 }
