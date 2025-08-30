@@ -62,6 +62,10 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     // Combine
     private var cancellables = Set<AnyCancellable>()
 
+    // Zoom handling
+    private var initialZoomFactor: CGFloat = 1.0
+    private var currentZoomFactor: CGFloat = 1.0
+
     init() {
         self.initialVolume = createVolumeBaseline()
         super.init(nibName: nil, bundle: nil)
@@ -84,6 +88,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         setupSessionHeader()
         setupOrientationUpdates()
         setupSessionObservers()
+        setupPinchToZoom()
 
         // Generator is reusable
         captureFeedback.prepare()
@@ -196,13 +201,11 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
 
     private func setupVolumeDetection() {
         // Volume button detection using MPVolumeView as an invisible view
-        // This is the recommended approach for detecting volume button presses without audio interference
         let volumeView = VolumeDetectionView()
         volumeView.frame = .zero
         volumeView.alpha = 0.01  // Make it essentially invisible but still functional
         view.addSubview(volumeView)
 
-        // Set up KVO on the volume slider to detect changes
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(volumeButtonPressed),
@@ -215,13 +218,12 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         sequenceOverlayLabel = PaddingLabel()
         guard let label = sequenceOverlayLabel else { return }
 
-        // Aviation-inspired professional styling
+        // Styling
         label.backgroundColor = UIColor.black.withAlphaComponent(0.7)
         label.textColor = .white
-        // Smaller lettering (36 -> 18)
-        label.font = .systemFont(ofSize: 18, weight: .bold)
+        label.font = .systemFont(ofSize: 18, weight: .bold) // smaller per your request
         label.textAlignment = .center
-        label.numberOfLines = 3  // Enable multiline support
+        label.numberOfLines = 3
         label.adjustsFontSizeToFitWidth = true
         label.minimumScaleFactor = 0.7
         label.layer.cornerRadius = 12
@@ -229,19 +231,16 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         label.layer.borderWidth = 2
         label.layer.borderColor = UIColor.white.withAlphaComponent(0.5).cgColor
 
-        // Set padding for the label
         label.edgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
 
         view.addSubview(label)
         updateSequenceOverlay()
 
-        // Position in camera viewfinder: move it further down from the top
+        // Position lower
         label.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            // Move down a bit more (from 20 to 80)
             label.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 80),
             label.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
-            // Reduce minimum size since font is smaller
             label.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
             label.heightAnchor.constraint(greaterThanOrEqualToConstant: 80)
         ])
@@ -250,23 +249,15 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     private func updateSequenceOverlay() {
         guard let label = sequenceOverlayLabel else { return }
 
-        // Update the display with current sequence and session info
         Task {
             let sequence = sequenceManager.currentSequence
-
-            // Get real session info asynchronously
-            let sessionInfo = await sessionManager.getCurrentSessionInfo()
-            let sessionName = sessionManager.activeSession?.name ?? "Default Session"
+            let sessionName = sessionManager.activeSession?.name ?? "Unknown Session"
 
             await MainActor.run {
-                // Use real session info instead of old sequence manager
                 let displayName = sessionName.count > 12 ? String(sessionName.prefix(12)) + "..." : sessionName
-
-                // Display format: "Photo\n8\nSession Name"
                 let sequenceText = "Photo\n\(sequence)\n\(displayName)"
                 label.text = sequenceText
 
-                // Animate the change briefly to draw attention
                 UIView.animate(withDuration: 0.2, animations: {
                     label.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
                 }) { _ in
@@ -280,7 +271,6 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
 
     private func resumeVolumeDetection() {
         volumeDetectionEnabled = true
-        // Reset volume detection baseline
     }
 
     private func pauseVolumeDetection() {
@@ -327,12 +317,8 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
 
         photoOutput?.capturePhoto(with: settings, delegate: self)
 
-        // Provide haptic feedback
-        if volumeTriggered {
-            captureFeedback.impactOccurred(intensity: 0.8)
-        } else {
-            captureFeedback.impactOccurred(intensity: 0.6)
-        }
+        // Haptics
+        captureFeedback.impactOccurred(intensity: volumeTriggered ? 0.8 : 0.6)
 
         // Visual feedback
         showCaptureFlash()
@@ -349,6 +335,45 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             flashView.alpha = 0
         }) { _ in
             flashView.removeFromSuperview()
+        }
+    }
+
+    // MARK: - Pinch to Zoom
+
+    private func setupPinchToZoom() {
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+        pinch.cancelsTouchesInView = false
+        view.addGestureRecognizer(pinch)
+    }
+
+    @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        guard let device = captureDevice else { return }
+
+        // Determine supported zoom range
+        let maxSupported = min(device.activeFormat.videoMaxZoomFactor, 6.0) // cap at ~6x for quality
+        let minSupported: CGFloat = 1.0
+
+        switch gesture.state {
+        case .began:
+            initialZoomFactor = currentZoomFactor
+        case .changed:
+            // New zoom is initial * scale
+            var newZoom = initialZoomFactor * gesture.scale
+            newZoom = max(min(newZoom, maxSupported), minSupported)
+
+            do {
+                try device.lockForConfiguration()
+                device.videoZoomFactor = newZoom
+                device.unlockForConfiguration()
+                currentZoomFactor = newZoom
+            } catch {
+                print("❌ Could not lock device for zoom configuration: \(error)")
+            }
+        case .ended, .cancelled, .failed:
+            // Stabilize current zoom
+            initialZoomFactor = currentZoomFactor
+        default:
+            break
         }
     }
 
@@ -545,7 +570,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             let sessionInfo = await sessionManager.getCurrentSessionInfo()
 
             await MainActor.run {
-                // Update header text with aviation-appropriate formatting
+                // Update header text
                 if sessionInfo == "No Active Session" {
                     headerLabel.text = "Tap to Start Inspection"
                     headerLabel.textColor = .orange
@@ -562,15 +587,10 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
 
     @objc private func sessionHeaderTapped() {
         // Navigate to session management (Gallery tab)
-        print("🔄 Session header tapped - requesting Gallery tab")
         if sessionManager.activeSession != nil {
-            // If we have an active session, switch to gallery
             tabSwitchHandler?("gallery")
-            print("✅ Switching to Gallery tab (active session)")
         } else {
-            // If no active session, switch to sessions tab to create one
             tabSwitchHandler?("sessions")
-            print("✅ Switching to Sessions tab (no active session)")
         }
     }
 
