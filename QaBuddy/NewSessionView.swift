@@ -16,6 +16,7 @@ struct NewSessionView: View {
     @State private var inspectorName: String = ""
     @State private var isCreating = false
     @State private var showInspectorPicker = false
+    @State private var selectedPresetName: String = "" // Separate binding for Picker
 
     // FAA Standard Aircraft Registration formats
     private let tailNumberPatterns = [
@@ -128,7 +129,7 @@ struct NewSessionView: View {
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
 
-            Picker("Common Names", selection: $inspectorName) {
+            Picker("Common Names", selection: $selectedPresetName) {
                 Text("Select Saved Inspector").tag("")
                 // TODO: Load from previous sessions
                 Divider()
@@ -137,6 +138,13 @@ struct NewSessionView: View {
                 Text("Mike Rodriguez").tag("Mike Rodriguez")
             }
             .pickerStyle(.menu)
+            .onChange(of: selectedPresetName) { oldValue, newValue in
+                // Only update inspectorName when non-empty selection is made
+                if !newValue.isEmpty {
+                    inspectorName = newValue
+                    selectedPresetName = "" // Reset picker after selection
+                }
+            }
         }
     }
 

@@ -284,7 +284,6 @@ final class SessionManager: ObservableObject {
         do {
             let count = try context.count(for: request)
             let finalCount = Int64(max(0, count))
-            print("📊 calculateRealPhotoCount: Found \(finalCount) photos for session \(sessionId)")
             return finalCount
         } catch {
             print("❌ Error calculating photo count for session \(sessionId): \(error)")
