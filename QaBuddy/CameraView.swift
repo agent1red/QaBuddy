@@ -65,6 +65,8 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     // Zoom handling
     private var initialZoomFactor: CGFloat = 1.0
     private var currentZoomFactor: CGFloat = 1.0
+    private var zoomIndicatorLabel: UILabel?
+    private var zoomHideWorkItem: DispatchWorkItem?
 
     init() {
         self.initialVolume = createVolumeBaseline()
@@ -89,8 +91,10 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         setupOrientationUpdates()
         setupSessionObservers()
         setupPinchToZoom()
+        setupDoubleTapToZoom()
+        setupZoomIndicator()
 
-        // Generator is reusable
+        // Prepare haptics
         captureFeedback.prepare()
         errorFeedback.prepare()
     }
@@ -168,6 +172,10 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
                 device.torchMode = .off
                 device.unlockForConfiguration()
             }
+
+            // Initialize current zoom factor from device
+            currentZoomFactor = device.videoZoomFactor
+            initialZoomFactor = currentZoomFactor
 
         } catch {
             print("Error setting up camera: \(error)")
@@ -338,7 +346,56 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         }
     }
 
-    // MARK: - Pinch to Zoom
+    // MARK: - Zoom UI & Gestures
+
+    private func setupZoomIndicator() {
+        let label = UILabel()
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 14, weight: .semibold)
+        label.textAlignment = .center
+        label.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        label.layer.cornerRadius = 10
+        label.clipsToBounds = true
+        label.alpha = 0.0
+        label.text = formattedZoomText(currentZoomFactor)
+
+        zoomIndicatorLabel = label
+        view.addSubview(label)
+
+        label.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            label.widthAnchor.constraint(greaterThanOrEqualToConstant: 50),
+            label.heightAnchor.constraint(equalToConstant: 24)
+        ])
+    }
+
+    private func formattedZoomText(_ factor: CGFloat) -> String {
+        // Round to nearest 0.1x
+        let rounded = (factor * 10).rounded() / 10.0
+        return "\(rounded)x"
+    }
+
+    private func showZoomIndicator() {
+        guard let label = zoomIndicatorLabel else { return }
+
+        // Update text and show
+        label.text = formattedZoomText(currentZoomFactor)
+        UIView.animate(withDuration: 0.15) {
+            label.alpha = 1.0
+        }
+
+        // Cancel any pending hides and schedule a new one
+        zoomHideWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            UIView.animate(withDuration: 0.25) {
+                self?.zoomIndicatorLabel?.alpha = 0.0
+            }
+        }
+        zoomHideWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: workItem)
+    }
 
     private func setupPinchToZoom() {
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
@@ -356,24 +413,64 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         switch gesture.state {
         case .began:
             initialZoomFactor = currentZoomFactor
+            showZoomIndicator()
         case .changed:
-            // New zoom is initial * scale
             var newZoom = initialZoomFactor * gesture.scale
             newZoom = max(min(newZoom, maxSupported), minSupported)
-
-            do {
-                try device.lockForConfiguration()
-                device.videoZoomFactor = newZoom
-                device.unlockForConfiguration()
-                currentZoomFactor = newZoom
-            } catch {
-                print("❌ Could not lock device for zoom configuration: \(error)")
-            }
+            setZoom(to: newZoom, animated: false)
+            showZoomIndicator()
         case .ended, .cancelled, .failed:
-            // Stabilize current zoom
             initialZoomFactor = currentZoomFactor
+            showZoomIndicator() // will auto-hide
         default:
             break
+        }
+    }
+
+    private func setupDoubleTapToZoom() {
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.cancelsTouchesInView = false
+        view.addGestureRecognizer(doubleTap)
+    }
+
+    @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+        guard let device = captureDevice else { return }
+        let maxSupported = min(device.activeFormat.videoMaxZoomFactor, 6.0)
+
+        // Toggle between 1x and 2x (or clamp to max if device < 2x)
+        let target: CGFloat
+        if currentZoomFactor < 1.5 {
+            target = min(2.0, maxSupported)
+        } else {
+            target = 1.0
+        }
+
+        setZoom(to: target, animated: true)
+        showZoomIndicator()
+        // Optional haptic to acknowledge zoom toggle
+        UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
+    }
+
+    private func setZoom(to factor: CGFloat, animated: Bool) {
+        guard let device = captureDevice else { return }
+        let clamped = max(1.0, min(factor, min(device.activeFormat.videoMaxZoomFactor, 6.0)))
+
+        do {
+            try device.lockForConfiguration()
+            if animated {
+                // Smooth zoom animation
+                CATransaction.begin()
+                CATransaction.setAnimationDuration(0.2)
+                device.videoZoomFactor = clamped
+                CATransaction.commit()
+            } else {
+                device.videoZoomFactor = clamped
+            }
+            device.unlockForConfiguration()
+            currentZoomFactor = clamped
+        } catch {
+            print("❌ Could not lock device for zoom configuration: \(error)")
         }
     }
 
@@ -615,6 +712,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             NotificationCenter.default.removeObserver(orientationObserver)
         }
         UIDevice.current.endGeneratingDeviceOrientationNotifications()
+        zoomHideWorkItem?.cancel()
         cancellables.removeAll()
         stopCamera()
     }
