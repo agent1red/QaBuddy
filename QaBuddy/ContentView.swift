@@ -82,42 +82,15 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
 
-                        Button(action: {
-                        if let activeSession = SessionManager.shared.activeSession {
-                            print("🔄 Completing current session: \(activeSession.name ?? "Unknown")")
-                            let alertController = UIAlertController(
-                                title: "End Current Session?",
-                                message: "Current session '\(activeSession.name ?? "")' will be completed and a new one can be started.",
-                                preferredStyle: .alert
-                            )
-
-                            alertController.addAction(UIAlertAction(title: "End Session", style: .destructive) { _ in
-                                Task {
-                                    await SessionManager.shared.updateSessionStatus(activeSession, to: .completed)
-                                    await updateSessionCounters() // Refresh counters after session change
-                                    print("✅ Active session completed")
-                                }
-                            })
-
-                            alertController.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-
-                            // Present alert (this requires access to a UIViewController)
-                            // For now, just complete the session
-                            Task {
-                                await SessionManager.shared.updateSessionStatus(activeSession, to: .completed)
-                                await updateSessionCounters() // Refresh counters after session change
-                                print("✅ Active session completed")
-                            }
-                        } else {
-                            print("🔗 Opening New Session creation")
-                            showingNewSession = true
-                        }
+                    Button(action: {
+                        print("🔗 Opening New Session creation (with auto-completion of current session)")
+                        showingNewSession = true
                     }) {
-                        Text(SessionManager.shared.activeSession != nil ? "Complete Current Session" : "Start New Session")
+                        Text("Start New Session")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
-                    .tint(SessionManager.shared.activeSession != nil ? .orange : .green)
+                    .tint(.green)
                 }
                 .padding(.horizontal)
 
