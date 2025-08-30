@@ -54,6 +54,10 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     private var sessionHeaderView: UIView?
     private var sessionHeaderLabel: UILabel?
 
+    // Orientation handling
+    private var orientationObserver: NSObjectProtocol?
+    private var currentVideoOrientation: AVCaptureVideoOrientation = .portrait
+
     init() {
         self.initialVolume = createVolumeBaseline()
         super.init(nibName: nil, bundle: nil)
@@ -74,6 +78,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         setupAudioSession()
         setupSequenceOverlay()
         setupSessionHeader()
+        setupOrientationUpdates()
 
         // Generator is reusable
         captureFeedback.prepare()
@@ -84,6 +89,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         super.viewWillAppear(animated)
         startCamera()
         resumeVolumeDetection()
+        updateVideoOrientation()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -160,11 +166,13 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         previewLayer?.videoGravity = .resizeAspectFill
         previewLayer?.frame = view.bounds
         view.layer.addSublayer(previewLayer!)
+        updateVideoOrientation()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         previewLayer?.frame = view.bounds
+        updateVideoOrientation()
         updateSessionHeader()
     }
 
@@ -201,7 +209,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         // Aviation-inspired professional styling
         label.backgroundColor = UIColor.black.withAlphaComponent(0.7)
         label.textColor = .white
-        // Make lettering twice as small (36 -> 18)
+        // Smaller lettering (36 -> 18)
         label.font = .systemFont(ofSize: 18, weight: .bold)
         label.textAlignment = .center
         label.numberOfLines = 3  // Enable multiline support
@@ -245,7 +253,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
                 // Use real session info instead of old sequence manager
                 let displayName = sessionName.count > 12 ? String(sessionName.prefix(12)) + "..." : sessionName
 
-                // Display format: "Photo\n8\nSession Name\n(Inspection Type • Tail)"
+                // Display format: "Photo\n8\nSession Name"
                 let sequenceText = "Photo\n\(sequence)\n\(displayName)"
                 label.text = sequenceText
 
@@ -286,6 +294,9 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         if !captureSession.isRunning {
             DispatchQueue.global(qos: .background).async { [weak self] in
                 self?.captureSession.startRunning()
+                DispatchQueue.main.async {
+                    self?.updateVideoOrientation()
+                }
             }
         }
     }
@@ -299,6 +310,11 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     private func capturePhoto(volumeTriggered: Bool = false) {
         let settings = AVCapturePhotoSettings()
         settings.flashMode = .off
+
+        // Ensure the photo output uses the current orientation
+        if let connection = photoOutput?.connections.first, connection.isVideoOrientationSupported {
+            connection.videoOrientation = currentVideoOrientation
+        }
 
         photoOutput?.capturePhoto(with: settings, delegate: self)
 
@@ -325,6 +341,58 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         }) { _ in
             flashView.removeFromSuperview()
         }
+    }
+
+    // MARK: - Orientation Handling
+
+    private func setupOrientationUpdates() {
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        orientationObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.orientationDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateVideoOrientation()
+        }
+    }
+
+    private func updateVideoOrientation() {
+        let deviceOrientation = UIDevice.current.orientation
+
+        // Map UIDeviceOrientation to AVCaptureVideoOrientation
+        let newVideoOrientation: AVCaptureVideoOrientation
+        switch deviceOrientation {
+        case .landscapeLeft:
+            newVideoOrientation = .landscapeRight   // camera sensor vs UI coords
+        case .landscapeRight:
+            newVideoOrientation = .landscapeLeft
+        case .portraitUpsideDown:
+            newVideoOrientation = .portraitUpsideDown
+        case .portrait:
+            fallthrough
+        default:
+            newVideoOrientation = .portrait
+        }
+
+        currentVideoOrientation = newVideoOrientation
+
+        // Apply to preview layer
+        if let connection = previewLayer?.connection, connection.isVideoOrientationSupported {
+            connection.videoOrientation = newVideoOrientation
+        }
+
+        // Also set on photo output connection so captures are upright
+        if let connection = photoOutput?.connections.first, connection.isVideoOrientationSupported {
+            connection.videoOrientation = newVideoOrientation
+        }
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: { _ in
+            self.previewLayer?.frame = CGRect(origin: .zero, size: size)
+            self.updateVideoOrientation()
+        })
     }
 
     // MARK: - AVCapturePhotoCaptureDelegate
@@ -501,6 +569,10 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         if let observer = notificationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let orientationObserver = orientationObserver {
+            NotificationCenter.default.removeObserver(orientationObserver)
+        }
+        UIDevice.current.endGeneratingDeviceOrientationNotifications()
         stopCamera()
     }
 }
