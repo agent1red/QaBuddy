@@ -57,6 +57,9 @@ class PhotoDeletionManager {
                 try renumberPhotosAfter(deletionOf: photo.sequenceNumber, in: photo.sessionID ?? "unknown")
             }
 
+            // Clear image caches to avoid stale images after permanent deletion
+            PhotoImageCache.shared.clearAllCaches()
+
             // Save all changes in a single transaction
             try context.save()
             print("✅ Permanently deleted \(sortedPhotos.count) photos - no recovery possible")

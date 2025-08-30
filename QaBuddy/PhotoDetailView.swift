@@ -140,6 +140,7 @@ struct PhotoDetailItem: View {
     @State private var showMetadata = true
     @State private var imageScale: CGFloat = 1.0
     @State private var imageOffset: CGSize = .zero
+    @State private var showLoadingSpinner = false // Will show loading spinner only for slow loads (>0.5s)
 
     private let photoManager = PhotoManager()
 
@@ -189,18 +190,20 @@ struct PhotoDetailItem: View {
                             }
                         }
                 } else if isLoadingImage {
-                    // Individual loading indicator for this photo
-                    VStack {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .tint(.white)
-                            .scaleEffect(1.0)
-                        Text("Loading...")
-                            .foregroundColor(.white.opacity(0.8))
-                            .font(.caption)
-                            .padding(.top, 8)
+                    // Show loading spinner only if loading is slow (>0.5s) to prevent UI flicker
+                    if showLoadingSpinner {
+                        VStack {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .tint(.white)
+                                .scaleEffect(1.0)
+                            Text("Loading...")
+                                .foregroundColor(.white.opacity(0.8))
+                                .font(.caption)
+                                .padding(.top, 8)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     // Error state - photo couldn't be loaded
                     VStack {
@@ -306,15 +309,48 @@ struct PhotoDetailItem: View {
             }
         }
         .task {
-            // Load full-resolution image immediately
+            // First, try to load full-res image from cache
+            let cacheKey = photo.imageFilename ?? photo.id?.uuidString ?? ""
+            if !cacheKey.isEmpty, let cachedFullImage = PhotoImageCache.shared.image(forKey: cacheKey) {
+                imageToDisplay = cachedFullImage
+                isLoadingImage = false
+                showLoadingSpinner = false
+                print("PhotoDetailItem: Loaded full-res image from cache for photo \(photo.sequenceNumber)")
+                return
+            }
+
+            // Not in cache, try to show thumbnail first if available
+            if !cacheKey.isEmpty, let cachedThumbnail = PhotoImageCache.shared.thumbnail(forKey: cacheKey) {
+                imageToDisplay = cachedThumbnail
+                isLoadingImage = true
+                print("PhotoDetailItem: Loaded thumbnail from cache for photo \(photo.sequenceNumber), loading high-res...")
+            }
+
+            // Start a delayed task to show loading spinner only if loading is slow (>0.5s)
+            Task {
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                await MainActor.run {
+                    if imageToDisplay == nil && isLoadingImage {
+                        showLoadingSpinner = true
+                    }
+                }
+            }
+
+            // Load full-res image asynchronously
             do {
                 print("PhotoDetailItem: Loading image for photo \(photo.sequenceNumber)")
                 let image = try await photoManager.loadImage(for: photo)
+
+                // Save to cache
+                if !cacheKey.isEmpty {
+                    PhotoImageCache.shared.setImage(image, forKey: cacheKey)
+                }
 
                 // Set the loaded image
                 await MainActor.run {
                     imageToDisplay = image
                     isLoadingImage = false
+                    showLoadingSpinner = false
                 }
 
                 print("PhotoDetailItem: Successfully loaded image for photo \(photo.sequenceNumber)")
@@ -323,6 +359,7 @@ struct PhotoDetailItem: View {
                 await MainActor.run {
                     imageToDisplay = nil
                     isLoadingImage = false
+                    showLoadingSpinner = false
                 }
             }
         }
@@ -330,6 +367,15 @@ struct PhotoDetailItem: View {
             // Cleanup when swiping away from this photo
             imageToDisplay = nil
             isLoadingImage = true
+            showLoadingSpinner = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            // Clear image and cache to free memory on memory warning
+            print("PhotoDetailItem: Received memory warning, clearing image and cache")
+            imageToDisplay = nil
+            isLoadingImage = true
+            showLoadingSpinner = false
+            PhotoImageCache.shared.clearAllCaches()
         }
     }
 }
@@ -339,3 +385,4 @@ struct PhotoDetailItem: View {
 //     // Create mock photo for preview
 //     // TODO: Re-enable when Core Data setup is stable
 // }
+

@@ -10,6 +10,7 @@ import CoreData
 import UIKit
 import CoreLocation
 
+
 // MARK: - Photo Metadata Structure
 
 struct PhotoMetadata {
@@ -51,10 +52,27 @@ class PhotoManager: @unchecked Sendable {
         let imageFilename = "photo_\(uuid.uuidString).jpg"
         let thumbnailFilename = "thumb_\(uuid.uuidString).jpg"
 
-        // Save images to storage
-        try await photoStorage.saveImage(image, filename: imageFilename)
-        let thumbnail = ThumbnailGenerator.generate(image: image, size: .medium)
-        try await photoStorage.saveThumbnail(thumbnail, filename: thumbnailFilename)
+        // Save the full-size image asynchronously
+        // Thumbnail creation and saving is done in a detached task to avoid blocking the current task
+        // Both image saving and thumbnail generation/saving are awaited concurrently for efficiency
+
+        async let saveFullImage = photoStorage.saveImage(image, filename: imageFilename)
+
+        async let saveThumbnail: Void = Task.detached(priority: .userInitiated) {
+            // Generate thumbnail on background thread
+            let thumbnail = ThumbnailGenerator.generate(image: image, size: .medium)
+            // Save thumbnail asynchronously within the detached task
+            try await self.photoStorage.saveThumbnail(thumbnail, filename: thumbnailFilename)
+            // Cache the thumbnail after saving
+            PhotoImageCache.shared.setThumbnail(thumbnail, forKey: thumbnailFilename)
+        }.value
+
+        // Await both image and thumbnail saving
+        try await saveFullImage
+        try await saveThumbnail
+
+        // Cache the saved full-size image after saving
+        PhotoImageCache.shared.setImage(image, forKey: imageFilename)
 
         print("Photo saved to storage successfully:")
         print("  Image: \(imageFilename)")
@@ -100,6 +118,8 @@ class PhotoManager: @unchecked Sendable {
          let request = Photo.fetchRequest()
          request.predicate = NSPredicate(format: "sessionID == %@", sessionID)
          request.sortDescriptors = [NSSortDescriptor(key: "sequenceNumber", ascending: true)]
+         request.fetchBatchSize = 40
+         request.returnsObjectsAsFaults = true
          let photos = try context.fetch(request)
          return photos
        }
@@ -111,6 +131,8 @@ class PhotoManager: @unchecked Sendable {
              NSSortDescriptor(key: "timestamp", ascending: false),
              NSSortDescriptor(key: "sequenceNumber", ascending: true)
          ]
+         request.fetchBatchSize = 40
+         request.returnsObjectsAsFaults = true
          let photos = try context.fetch(request)
          return photos
        }
@@ -200,6 +222,14 @@ class PhotoManager: @unchecked Sendable {
 
     /// Load full-size image asynchronously
      func loadImage(for photo: Photo) async throws -> UIImage {
+         // Progressive loading: first load low-res via loadThumbnail(for:) before calling loadImage(for:)
+         
+         // Attempt to get cached image using photo.imageFilename or photo.id.uuidString
+         let key = photo.imageFilename ?? photo.id?.uuidString ?? ""
+         if let cachedImage = PhotoImageCache.shared.image(forKey: key) {
+             return cachedImage
+         }
+
          guard let imageURL = photo.imageURL else {
              throw PhotoManagerError.fileNotFound
          }
@@ -212,6 +242,7 @@ class PhotoManager: @unchecked Sendable {
                          continuation.resume(throwing: PhotoManagerError.invalidImageData)
                          return
                      }
+                     PhotoImageCache.shared.setImage(image, forKey: key)
                      continuation.resume(returning: image)
                  } catch {
                      continuation.resume(throwing: error)
@@ -222,13 +253,22 @@ class PhotoManager: @unchecked Sendable {
 
     /// Load thumbnail image synchronously (for faster gallery display)
      func loadThumbnail(for photo: Photo) -> UIImage? {
+         let key = photo.thumbnailFilename ?? photo.id?.uuidString ?? ""
+         if let cachedThumbnail = PhotoImageCache.shared.thumbnail(forKey: key) {
+             return cachedThumbnail
+         }
+
          guard let thumbnailURL = photo.thumbnailURL else {
              return nil
          }
     
          do {
              let data = try Data(contentsOf: thumbnailURL)
-             return UIImage(data: data)
+             if let thumbnail = UIImage(data: data) {
+                 PhotoImageCache.shared.setThumbnail(thumbnail, forKey: key)
+                 return thumbnail
+             }
+             return nil
          } catch {
              print("Failed to load thumbnail: \(error)")
              return nil
@@ -302,6 +342,8 @@ class ThumbnailGenerator {
 
     static func generate(image: UIImage, size: ThumbnailSize) -> UIImage {
         let targetSize = size.cgSize
+
+        // Note: Background queueing for this operation is handled by PhotoManager (see savePhoto implementation).
 
         let renderer = UIGraphicsImageRenderer(size: targetSize)
         let thumbnail = renderer.image { context in

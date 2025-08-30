@@ -8,6 +8,7 @@
 import SwiftUI
 import CoreData
 
+
 struct PhotoGalleryView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @ObservedObject var sessionManager = SessionManager.shared
@@ -29,6 +30,9 @@ struct PhotoGalleryView: View {
 
     // Managers
     private let photoManager = PhotoManager()
+    
+    // Delayed loading indicator control
+    @State private var showLoadingOverlay = false
 
     init() {
         _deletionManager = State(initialValue: PhotoDeletionManager(
@@ -85,7 +89,6 @@ struct PhotoGalleryView: View {
                         ForEach(uniquePhotos, id: \.id) { photo in
                             PhotoGridItem(
                                 photo: photo,
-                                thumbnailImage: photoManager.loadThumbnail(for: photo),
                                 isBulkSelectionMode: isBulkSelectionMode,
                                 isSelected: selectedPhotosForBulkDelete.contains(photo),
                                 onSelectionToggle: { togglePhotoSelection(photo) },
@@ -121,7 +124,8 @@ struct PhotoGalleryView: View {
 
     private var loadingOverlay: some View {
         Group {
-            if isLoading {
+            if showLoadingOverlay {
+                // Show loading spinner only if loading takes longer than 0.5 seconds to avoid flickering
                 ProgressView("Loading photos...")
                     .progressViewStyle(.circular)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -283,6 +287,9 @@ struct PhotoGalleryView: View {
                 await loadPhotos()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            PhotoImageCache.shared.clearAllCaches()
+        }
     }
 
     // MARK: - Bulk Selection Methods
@@ -348,7 +355,17 @@ struct PhotoGalleryView: View {
 
 
     private func loadPhotos() async {
+        // Start loading
         isLoading = true
+        showLoadingOverlay = false
+
+        // Delay showing loading indicator if loading takes more than 0.5 seconds to avoid flickering UI
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if isLoading {
+                showLoadingOverlay = true
+            }
+        }
+
         do {
             // Load photos based on session filtering
             if let activeSessionId = sessionManager.activeSessionIdString {
@@ -362,7 +379,9 @@ struct PhotoGalleryView: View {
             print("❌ Error loading photos: \(error)")
             photos = []
         }
+        // Loading complete
         isLoading = false
+        showLoadingOverlay = false
     }
 
     // MARK: - Helper Methods
@@ -389,13 +408,16 @@ struct PhotoGalleryView: View {
 
 struct PhotoGridItem: View {
     let photo: Photo
-    let thumbnailImage: UIImage?
     let isBulkSelectionMode: Bool
     let isSelected: Bool
     let onSelectionToggle: () -> Void
     let onDeleteSingle: () -> Void
 
     @State private var imageOpacity: Double = 0.0
+    @State private var displayedImage: UIImage? = nil
+    @State private var isHighResLoaded = false
+
+    private let photoManager = PhotoManager()
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -459,11 +481,15 @@ struct PhotoGridItem: View {
             .padding(8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
+        .onAppear {
+            loadThumbnailOrCache()
+            loadHighResImageAsync()
+        }
     }
 
     private var mainContent: some View {
         Group {
-            if let image = thumbnailImage {
+            if let image = displayedImage {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -490,6 +516,46 @@ struct PhotoGridItem: View {
             }
         }
     }
+
+    private func loadThumbnailOrCache() {
+        // Use photo.thumbnailFilename or photo.id?.uuidString as cache key
+        let cacheKey = photo.thumbnailFilename ?? photo.id?.uuidString ?? ""
+
+        if let cachedImage = PhotoImageCache.shared.image(forKey: cacheKey) {
+            displayedImage = cachedImage
+            imageOpacity = 1.0
+        } else {
+            if let thumb = photoManager.loadThumbnail(for: photo) {
+                displayedImage = thumb
+                imageOpacity = 1.0
+                PhotoImageCache.shared.setImage(thumb, forKey: cacheKey)
+            }
+        }
+    }
+
+    private func loadHighResImageAsync() {
+        // Stub for progressive loading: after appear, try to load high-res image async and update if available
+        guard !isHighResLoaded else { return }
+        
+        isHighResLoaded = true
+
+        Task {
+            do {
+                let highResImage = try await photoManager.loadImage(for: photo)
+                let cacheKey = photo.thumbnailFilename ?? photo.id?.uuidString ?? ""
+                PhotoImageCache.shared.setImage(highResImage, forKey: cacheKey)
+                // Update UI on main thread
+                await MainActor.run {
+                    displayedImage = highResImage
+                    withAnimation(.easeIn(duration: 0.3)) {
+                        imageOpacity = 1.0
+                    }
+                }
+            } catch {
+                // Optionally handle error (ignore for now)
+            }
+        }
+    }
 }
 
 // MARK: - Photo List Item
@@ -497,26 +563,30 @@ struct PhotoGridItem: View {
 struct PhotoListItem: View {
     let photo: Photo
 
+    private let photoManager = PhotoManager()
+    @State private var displayedImage: UIImage? = nil
+
     var body: some View {
         HStack(spacing: 16) {
             // Thumbnail
-            if let image = PhotoManager().loadThumbnail(for: photo) {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 80, height: 60)
-                    .clipped()
-                    .cornerRadius(6)
-            } else {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 80, height: 60)
-                    .overlay(
-                        Image(systemName: "photo")
-                            .foregroundColor(.gray)
-                    )
+            Group {
+                if let image = displayedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 80, height: 60)
+                        .clipped()
+                        .cornerRadius(6)
+                } else {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 80, height: 60)
+                        .overlay(
+                            Image(systemName: "photo")
+                                .foregroundColor(.gray)
+                        )
+                }
             }
-
             // Info
             VStack(alignment: .leading, spacing: 4) {
                 Text("Photo \(photo.sequenceNumber)")
@@ -539,6 +609,21 @@ struct PhotoListItem: View {
         .padding(.horizontal)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
+        .onAppear {
+            loadThumbnailOrCache()
+        }
+    }
+
+    private func loadThumbnailOrCache() {
+        let cacheKey = photo.thumbnailFilename ?? photo.id?.uuidString ?? ""
+        if let cachedImage = PhotoImageCache.shared.image(forKey: cacheKey) {
+            displayedImage = cachedImage
+        } else {
+            if let thumb = photoManager.loadThumbnail(for: photo) {
+                displayedImage = thumb
+                PhotoImageCache.shared.setImage(thumb, forKey: cacheKey)
+            }
+        }
     }
 }
 
@@ -549,3 +634,4 @@ struct PhotoListItem: View {
     return PhotoGalleryView()
         .environment(\.managedObjectContext, persistence.container.viewContext)
 }
+

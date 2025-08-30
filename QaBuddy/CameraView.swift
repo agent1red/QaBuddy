@@ -201,7 +201,8 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         // Aviation-inspired professional styling
         label.backgroundColor = UIColor.black.withAlphaComponent(0.7)
         label.textColor = .white
-        label.font = .systemFont(ofSize: 36, weight: .bold)
+        // Make lettering twice as small (36 -> 18)
+        label.font = .systemFont(ofSize: 18, weight: .bold)
         label.textAlignment = .center
         label.numberOfLines = 3  // Enable multiline support
         label.adjustsFontSizeToFitWidth = true
@@ -217,13 +218,15 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         view.addSubview(label)
         updateSequenceOverlay()
 
-        // Position prominently in camera viewfinder (top-left to avoid obstructing subject)
+        // Position in camera viewfinder: move it further down from the top
         label.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            // Move down a bit more (from 20 to 80)
+            label.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 80),
             label.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
-            label.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),    // Increased width
-            label.heightAnchor.constraint(greaterThanOrEqualToConstant: 120)    // Increased height for 3 lines
+            // Reduce minimum size since font is smaller
+            label.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
+            label.heightAnchor.constraint(greaterThanOrEqualToConstant: 80)
         ])
     }
 
