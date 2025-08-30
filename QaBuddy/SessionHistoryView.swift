@@ -266,19 +266,87 @@ struct SessionHistoryView: View {
 
     private func deleteSession(_ session: Session) async {
         let context = PersistenceController.shared.container.viewContext
+        let wasActiveSession = session == sessionManager.activeSession
 
-        await MainActor.run {
-            context.delete(session)
-            do {
-                try context.save()
-                // Refresh the sessions list
-                Task {
-                    await loadSessions()
+        // Delete associated photos first
+        if let photos = session.photos as? Set<Photo> {
+            for photo in photos {
+                // Delete image files
+                if let imageFilename = photo.imageFilename {
+                    let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                    let fullImagePath = documentsDirectory.appendingPathComponent(imageFilename)
+
+                    do {
+                        try FileManager.default.removeItem(at: fullImagePath)
+                        print("🗑️ Deleted full image file: \(imageFilename)")
+                    } catch {
+                        print("⚠️ Failed to delete full image file \(imageFilename): \(error)")
+                    }
                 }
-                print("✅ Session '\(session.name ?? "Unknown")' deleted")
-            } catch {
-                print("❌ Error deleting session: \(error)")
+
+                // Delete thumbnail files
+                if let thumbnailFilename = photo.thumbnailFilename {
+                    let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                    let thumbnailPath = documentsDirectory.appendingPathComponent(thumbnailFilename)
+
+                    do {
+                        try FileManager.default.removeItem(at: thumbnailPath)
+                        print("🗑️ Deleted thumbnail file: \(thumbnailFilename)")
+                    } catch {
+                        print("⚠️ Failed to delete thumbnail file \(thumbnailFilename): \(error)")
+                    }
+                }
+
+                // Delete photo entities
+                context.delete(photo)
             }
+        }
+
+        // Delete the session
+        context.delete(session)
+
+        do {
+            try context.save()
+            print("✅ Session '\(session.name ?? "Unknown")' and all photos permanently deleted")
+
+            // If this was the active session, clear it and promote next session
+            if wasActiveSession {
+                // Clear current active session first
+                sessionManager.activeSession = nil
+                print("🔥 Active session cleared - checking for promotion candidates")
+
+                // Check for remaining completed sessions and promote the most recent one
+                // Note: This refreshes the sessionManager.allSessions after deletion
+                await sessionManager.preloadSessions()
+
+                let remainingSessions = sessionManager.allSessions
+                    .filter { $0.status == SessionStatus.completed.rawValue && $0.id != session.id }
+                    .sorted { ($0.startTimestamp ?? Date()) > ($1.startTimestamp ?? Date()) }
+
+                print("📊 Found \(remainingSessions.count) remaining completed sessions")
+
+                if let nextSession = remainingSessions.first {
+                    let success = await sessionManager.switchToSession(nextSession)
+                    if success {
+                        print("🔄 Auto-promoted next session: \(nextSession.name ?? "Unknown")")
+                    } else {
+                        print("❌ Failed to auto-promote session: \(nextSession.name ?? "Unknown")")
+                    }
+                } else {
+                    print("ℹ️ No remaining sessions to promote")
+                    // No auto-promotion needed - remain in 'No Active Session' state
+                }
+
+                sessionManager.objectWillChange.send()
+            }
+
+            // Refresh the sessions list
+            await loadSessions()
+            print("🔄 Session deletion completed - UI refreshed")
+
+        } catch {
+            print("❌ Error deleting session: \(error)")
+            context.rollback()
         }
     }
 

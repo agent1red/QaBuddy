@@ -154,11 +154,11 @@ struct ContentView: View {
                 await updateSessionCounters()
             }
         }) {
-            // Avoid direct function call: wrap in closure
-            SessionHistoryView(onReturnToGallery: {
+            let callback = {
                 print("🔄 Callback: Switching to Gallery tab from SessionHistoryView")
                 selectedTab = 1 // Switch to Gallery tab
-            })
+            }
+            SessionHistoryView(onReturnToGallery: callback)
         }
         .onAppear {
             // Load sessions on app launch

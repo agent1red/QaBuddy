@@ -278,6 +278,11 @@ struct PhotoGalleryView: View {
         .refreshable {
             await loadPhotos()
         }
+        .onReceive(sessionManager.objectWillChange) { _ in
+            Task {
+                await loadPhotos()
+            }
+        }
     }
 
     // MARK: - Bulk Selection Methods
@@ -349,11 +354,9 @@ struct PhotoGalleryView: View {
             if let activeSessionId = sessionManager.activeSessionIdString {
                 // Load photos for active session only
                 photos = try photoManager.fetchPhotos(forSession: activeSessionId)
-                print("📸 Loaded \(photos.count) photos for active session: \(activeSessionId)")
             } else {
                 // No active session - show all photos
                 photos = try photoManager.fetchAllPhotos()
-                print("📸 Loaded all \(photos.count) photos (no active session)")
             }
         } catch {
             print("❌ Error loading photos: \(error)")

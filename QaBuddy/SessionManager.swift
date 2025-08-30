@@ -104,9 +104,20 @@ final class SessionManager: ObservableObject {
 
             do {
                 let sessions = try context.fetch(request)
-                activeSession = sessions.first
+                if let session = sessions.first {
+                    activeSession = session
+                    print("✅ Loaded active session: \(session.name ?? "Unknown")")
+                } else {
+                    // Session no longer exists (was deleted) - clean up UserDefaults
+                    print("⚠️ Saved active session no longer exists - clearing UserDefaults")
+                    UserDefaults.standard.removeObject(forKey: "activeSessionId")
+                    activeSession = nil
+                }
             } catch {
-                print("Error loading active session: \(error)")
+                print("❌ Error loading active session: \(error)")
+                // Clear potentially corrupted UserDefaults on error
+                UserDefaults.standard.removeObject(forKey: "activeSessionId")
+                activeSession = nil
             }
         }
     }
