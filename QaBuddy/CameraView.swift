@@ -68,6 +68,14 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     private var zoomIndicatorLabel: UILabel?
     private var zoomHideWorkItem: DispatchWorkItem?
 
+    // Reliability: capture throttling and state
+    private var inFlightCapture = false
+    private var lastCaptureTime: Date?
+    private let captureThrottleInterval: TimeInterval = 0.5
+
+    // Foreground observer
+    private var foregroundObserver: NSObjectProtocol?
+
     init() {
         self.initialVolume = createVolumeBaseline()
         super.init(nibName: nil, bundle: nil)
@@ -93,6 +101,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         setupPinchToZoom()
         setupDoubleTapToZoom()
         setupZoomIndicator()
+        setupForegroundObserver()
 
         // Prepare haptics
         captureFeedback.prepare()
@@ -104,6 +113,24 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         startCamera()
         resumeVolumeDetection()
         updateVideoOrientation()
+
+        // Attempt recovery if needed
+        Task {
+            if sessionManager.activeSession == nil {
+                let recovered = await sessionManager.loadFromRecoveryCheckpoint()
+                Logger.info("Recovery attempt on appear: \(recovered ? "Recovered active session" : "No recovery needed")")
+                if recovered {
+                    await MainActor.run {
+                        self.updateSessionHeader()
+                        self.updateSequenceOverlay()
+                    }
+                }
+            }
+
+            // Integrity checks and sync on appear
+            _ = await sessionManager.performIntegrityCheck()
+            await sessionManager.syncAllSessionCounts()
+        }
 
         // Ensure overlays reflect the latest session immediately when returning to camera
         updateSessionHeader()
@@ -117,37 +144,47 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
 
     private func requestPermissions() {
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-            if !granted {
+            if granted == false {
+                Logger.warn("Camera permission not granted")
                 DispatchQueue.main.async {
-                    self?.showPermissionError()
+                    self?.presentErrorAlert(
+                        title: "Camera Access Required",
+                        message: "Enable camera access in Settings to capture photos.",
+                        actions: [
+                            ("Open Settings", { _ in
+                                if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(settingsUrl)
+                                }
+                            }),
+                            ("Cancel", { _ in })
+                        ]
+                    )
                 }
             }
         }
     }
 
     private func showPermissionError() {
-        let alert = UIAlertController(
+        presentErrorAlert(
             title: "Camera Access Required",
             message: "Please enable camera access in Settings to capture photos for your inspection documentation.",
-            preferredStyle: .alert
+            actions: [
+                ("Settings", { _ in
+                    if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(settingsUrl)
+                    }
+                }),
+                ("Cancel", { _ in })
+            ]
         )
-
-        alert.addAction(UIAlertAction(title: "Settings", style: .default, handler: { _ in
-            if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
-                UIApplication.shared.open(settingsUrl)
-            }
-        }))
-
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-
-        present(alert, animated: true)
     }
 
     private func setupCamera() {
         captureSession.sessionPreset = .photo
 
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-            print("No camera available")
+            Logger.error("No camera available")
+            presentErrorAlert(title: "Camera Unavailable", message: "Your device’s camera is not available.")
             return
         }
 
@@ -157,11 +194,15 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             let input = try AVCaptureDeviceInput(device: device)
             if captureSession.canAddInput(input) {
                 captureSession.addInput(input)
+            } else {
+                Logger.error("Cannot add camera input to session")
             }
 
             photoOutput = AVCapturePhotoOutput()
             if let photoOutput = photoOutput, captureSession.canAddOutput(photoOutput) {
                 captureSession.addOutput(photoOutput)
+            } else {
+                Logger.error("Cannot add photo output to session")
             }
 
             setupPreviewLayer()
@@ -176,10 +217,13 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             // Initialize current zoom factor from device
             currentZoomFactor = device.videoZoomFactor
             initialZoomFactor = currentZoomFactor
-
         } catch {
-            print("Error setting up camera: \(error)")
+            Logger.error("Error setting up camera: \(error.localizedDescription)")
             errorFeedback.notificationOccurred(.error)
+            presentErrorAlert(
+                title: "Camera Setup Failed",
+                message: "Please restart the app. If the issue persists, check camera permissions in Settings."
+            )
         }
     }
 
@@ -203,7 +247,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             try audioSession.setCategory(.playback, mode: .default, policy: .default, options: [])
             try audioSession.setActive(true)
         } catch {
-            print("Error setting up audio session: \(error)")
+            Logger.warn("Audio session setup failed: \(error.localizedDescription)")
         }
     }
 
@@ -211,7 +255,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         // Volume button detection using MPVolumeView as an invisible view
         let volumeView = VolumeDetectionView()
         volumeView.frame = .zero
-        volumeView.alpha = 0.01  // Make it essentially invisible but still functional
+        volumeView.alpha = 0.01
         view.addSubview(volumeView)
 
         NotificationCenter.default.addObserver(
@@ -315,6 +359,25 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     }
 
     private func capturePhoto(volumeTriggered: Bool = false) {
+        // Throttle rapid successive captures
+        let now = Date()
+        if inFlightCapture {
+            Logger.debug("Capture ignored: in-flight capture still processing")
+            return
+        }
+        if let last = lastCaptureTime, now.timeIntervalSince(last) < captureThrottleInterval {
+            Logger.debug("Capture throttled: too soon since last (\(now.timeIntervalSince(last))s)")
+            return
+        }
+
+        guard photoOutput != nil else {
+            presentErrorAlert(title: "Camera Not Ready", message: "Please wait a moment and try again.")
+            return
+        }
+
+        inFlightCapture = true
+        lastCaptureTime = now
+
         let settings = AVCapturePhotoSettings()
         settings.flashMode = .off
 
@@ -448,7 +511,6 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
 
         setZoom(to: target, animated: true)
         showZoomIndicator()
-        // Optional haptic to acknowledge zoom toggle
         UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
     }
 
@@ -459,7 +521,6 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         do {
             try device.lockForConfiguration()
             if animated {
-                // Smooth zoom animation
                 CATransaction.begin()
                 CATransaction.setAnimationDuration(0.2)
                 device.videoZoomFactor = clamped
@@ -470,7 +531,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             device.unlockForConfiguration()
             currentZoomFactor = clamped
         } catch {
-            print("❌ Could not lock device for zoom configuration: \(error)")
+            Logger.warn("Zoom configuration failed: \(error.localizedDescription)")
         }
     }
 
@@ -526,7 +587,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         })
     }
 
-    // MARK: - Session Observers
+    // MARK: - Session Observers & Foreground
 
     private func setupSessionObservers() {
         // Update overlays immediately when the active session changes
@@ -539,24 +600,66 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             .store(in: &cancellables)
     }
 
+    private func setupForegroundObserver() {
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            Logger.info("App entering foreground: verifying integrity and refreshing overlays")
+            Task {
+                _ = await self.sessionManager.performIntegrityCheck()
+                await self.sessionManager.syncAllSessionCounts()
+                await MainActor.run {
+                    self.updateSessionHeader()
+                    self.updateSequenceOverlay()
+                }
+            }
+        }
+    }
+
     // MARK: - AVCapturePhotoCaptureDelegate
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        defer {
+            // Allow next capture
+            inFlightCapture = false
+            lastCaptureTime = Date()
+        }
+
         if let error = error {
-            print("Error capturing photo: \(error)")
+            Logger.error("Error capturing photo: \(error.localizedDescription)")
             errorFeedback.notificationOccurred(.error)
+
+            let nsError = error as NSError
+            if isStorageOutOfSpace(nsError) {
+                presentErrorAlert(
+                    title: "Storage Full",
+                    message: "Your device is out of storage. Free up space and try again.",
+                    actions: [("OK", { _ in })]
+                )
+            } else {
+                presentErrorAlert(
+                    title: "Capture Failed",
+                    message: "Unable to capture photo. Please try again.",
+                    actions: [("OK", { _ in })]
+                )
+            }
             return
         }
 
         guard let imageData = photo.fileDataRepresentation() else {
-            print("No image data")
+            Logger.error("No image data from capture")
+            presentErrorAlert(title: "Capture Failed", message: "No image data was returned.")
             return
         }
 
         // Convert to UIImage for storage
         guard let image = UIImage(data: imageData) else {
-            print("Failed to create image from data")
+            Logger.error("Failed to create image from data")
             errorFeedback.notificationOccurred(.error)
+            presentErrorAlert(title: "Capture Failed", message: "Captured data could not be decoded.")
             return
         }
 
@@ -581,15 +684,15 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
                 // Increment photo count in the new SessionManager (not sequence count)
                 await sessionManager.incrementPhotoCount()
 
-                // Auto-save session data with recovery checkpoint
-                await sessionManager.autoSave()
+                // Enhanced auto-save with recovery checkpoint
+                await sessionManager.autoSaveWithRecovery()
 
                 // Update camera view header with new photo count
                 await MainActor.run {
                     self.updateSessionHeader()
                 }
 
-                print("Photo saved successfully! Session sequence #\(currentSessionSequence)")
+                Logger.info("Photo saved successfully (session seq #\(currentSessionSequence))")
 
                 // Increment sequence number for next photo in this session
                 sequenceManager.incrementSequence()
@@ -602,10 +705,32 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
                 // Additional haptic feedback for successful save
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } catch {
-                print("Error saving photo to storage: \(error)")
+                let nsError = error as NSError
+                Logger.error("Error saving photo: \(nsError.domain) \(nsError.code) \(nsError.localizedDescription)")
                 errorFeedback.notificationOccurred(.error)
+
+                if isStorageOutOfSpace(nsError) {
+                    presentErrorAlert(
+                        title: "Storage Full",
+                        message: "Your device is out of storage. Free up space and try again.",
+                        actions: [("OK", { _ in })]
+                    )
+                } else {
+                    presentErrorAlert(
+                        title: "Save Failed",
+                        message: "We couldn’t save the photo. Please try again. If the issue persists, restart the app.",
+                        actions: [("OK", { _ in })]
+                    )
+                }
             }
         }
+    }
+
+    private func isStorageOutOfSpace(_ error: NSError) -> Bool {
+        if error.domain == NSCocoaErrorDomain && error.code == NSFileWriteOutOfSpaceError { return true }
+        // POSIX ENOSPC (28) sometimes comes through as NSPOSIXErrorDomain
+        if error.domain == NSPOSIXErrorDomain && error.code == 28 { return true }
+        return false
     }
 
     // MARK: - Session Header Management
@@ -704,12 +829,28 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         }
     }
 
+    // MARK: - Alerts
+
+    private func presentErrorAlert(title: String, message: String, actions: [(String, (UIAlertAction) -> Void)] = [("OK", { _ in })]) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        for (title, handler) in actions {
+            let style: UIAlertAction.Style = title.lowercased().contains("cancel") ? .cancel : .default
+            alert.addAction(UIAlertAction(title: title, style: style, handler: handler))
+        }
+        present(alert, animated: true)
+    }
+
+    // MARK: - Deinit
+
     deinit {
         if let observer = notificationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         if let orientationObserver = orientationObserver {
             NotificationCenter.default.removeObserver(orientationObserver)
+        }
+        if let foregroundObserver = foregroundObserver {
+            NotificationCenter.default.removeObserver(foregroundObserver)
         }
         UIDevice.current.endGeneratingDeviceOrientationNotifications()
         zoomHideWorkItem?.cancel()

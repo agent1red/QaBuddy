@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var totalSessions: Int = 0
     @State private var activeSessionCount: Int = 0
     @ObservedObject private var sessionManager = SessionManager.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     let persistenceController = PersistenceController.shared
 
@@ -134,9 +135,33 @@ struct ContentView: View {
             SessionHistoryView(onReturnToGallery: callback)
         }
         .onAppear {
-            // Load sessions on app launch
+            // Load sessions on app launch and run integrity checks
             Task {
+                // Attempt recovery if needed
+                if SessionManager.shared.activeSession == nil {
+                    let recovered = await SessionManager.shared.loadFromRecoveryCheckpoint()
+                    Logger.info("App launch recovery: \(recovered ? "Recovered active session" : "None")")
+                }
+                await sessionManager.syncAllSessionCounts()
+                _ = await sessionManager.performIntegrityCheck()
                 await updateSessionCounters()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                Task {
+                    await sessionManager.syncAllSessionCounts()
+                    _ = await sessionManager.performIntegrityCheck()
+                    await updateSessionCounters()
+                }
+            case .background:
+                Task {
+                    await sessionManager.autoSaveWithRecovery()
+                    Logger.info("Background: autoSaveWithRecovery checkpoint created")
+                }
+            default:
+                break
             }
         }
     }
