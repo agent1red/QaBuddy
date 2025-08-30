@@ -17,6 +17,10 @@ struct SessionHistoryView: View {
     @State private var sessionToDelete: Session?
     @State private var sessionPhotoCounts: [String: Int64] = [:]
 
+    init(onReturnToGallery: (() -> Void)? = nil) {
+        self.onReturnToGallery = onReturnToGallery
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {

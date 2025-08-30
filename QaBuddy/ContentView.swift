@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var showingSessionHistory = false
     @State private var totalSessions: Int = 0
     @State private var activeSessionCount: Int = 0
+    @ObservedObject private var sessionManager = SessionManager.shared
 
     let persistenceController = PersistenceController.shared
 
@@ -132,10 +133,28 @@ struct ContentView: View {
         }
         .environment(\.managedObjectContext, persistenceController.container.viewContext)
         .accentColor(.blue) // Aviation-appropriate accent color
-        .sheet(isPresented: $showingNewSession) {
+        .onReceive(sessionManager.objectWillChange) { _ in
+            Task {
+                await updateSessionCounters()
+            }
+        }
+        .sheet(isPresented: $showingNewSession, onDismiss: {
+            // Update counters when new session sheet is dismissed
+            print("🔄 New session sheet dismissed - refreshing counters")
+            Task {
+                await updateSessionCounters()
+            }
+        }) {
             NewSessionView()
         }
-        .sheet(isPresented: $showingSessionHistory) {
+        .sheet(isPresented: $showingSessionHistory, onDismiss: {
+            // Update counters when session history sheet is dismissed
+            print("🔄 Session history sheet dismissed - refreshing counters")
+            Task {
+                await updateSessionCounters()
+            }
+        }) {
+            // Avoid direct function call: wrap in closure
             SessionHistoryView(onReturnToGallery: {
                 print("🔄 Callback: Switching to Gallery tab from SessionHistoryView")
                 selectedTab = 1 // Switch to Gallery tab
@@ -162,7 +181,6 @@ struct ContentView: View {
         await MainActor.run {
             self.totalSessions = allSessions.count
             self.activeSessionCount = activeSessionCount
-            print("📊 Updated session counters - Total: \(totalSessions), Active: \(activeSessionCount)")
         }
     }
 }
