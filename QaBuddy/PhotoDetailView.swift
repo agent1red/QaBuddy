@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import CoreData
 
 struct PhotoDetailView: View {
     let photos: [Photo]
@@ -19,7 +20,9 @@ struct PhotoDetailView: View {
 
     // Managers
     private let photoManager = PhotoManager()
-    private let sequenceManager = SequenceManager()
+
+    // Cache resolved session names by sessionID string
+    @State private var sessionNameCache: [String: String] = [:]
 
     private var currentPhotoIndex: Int {
         photos.firstIndex { $0.id == currentPhoto.id } ?? 0
@@ -29,22 +32,6 @@ struct PhotoDetailView: View {
         let total = photos.count
         let current = currentIndex + 1
         return "Photo \(current) of \(total)"
-    }
-
-    private var photoMetadata: (timestamp: String, sequence: String, session: String, location: String?) {
-        let timestamp = currentPhoto.timestamp?.formatted(date: .abbreviated, time: .shortened) ?? "Unknown"
-
-        let sequence = "#\(photos[currentIndex].sequenceNumber)"
-
-        let session = currentPhoto.sessionID ?? "Unknown Session"
-
-        let location: String? = {
-            let latitude = currentPhoto.latitude
-            let longitude = currentPhoto.longitude
-            return String(format: "%.6f, %.6f", latitude, longitude)
-        }()
-
-        return (timestamp, sequence, session, location)
     }
 
     var body: some View {
@@ -104,12 +91,12 @@ struct PhotoDetailView: View {
         }
     }
 
+    // MARK: - Metadata Builders
+
     private func getMetadata(for photo: Photo) -> (timestamp: String, sequence: String, session: String, location: String?) {
         let timestamp = photo.timestamp?.formatted(date: .abbreviated, time: .shortened) ?? "Unknown"
-
         let sequence = "#\(photo.sequenceNumber)"
-
-        let session = photo.sessionID ?? "Unknown Session"
+        let sessionName = resolvedSessionName(for: photo) ?? "Unknown Session"
 
         let location: String? = {
             let latitude = photo.latitude
@@ -117,13 +104,48 @@ struct PhotoDetailView: View {
             return String(format: "%.6f, %.6f", latitude, longitude)
         }()
 
-        return (timestamp, sequence, session, location)
+        return (timestamp, sequence, sessionName, location)
     }
 
     private func getPhotoMetadata(for photo: Photo) -> (sequence: String, sessionName: String) {
         let sequence = "#\(photo.sequenceNumber)"
-        let sessionName = sequenceManager.getPhotoMetadata(forSequence: Int64(photo.sequenceNumber)).sessionName
+        let sessionName = resolvedSessionName(for: photo) ?? "Unknown Session"
         return (sequence, sessionName)
+    }
+
+    // MARK: - Session Name Resolution
+
+    private func resolvedSessionName(for photo: Photo) -> String? {
+        guard let sessionID = photo.sessionID, !sessionID.isEmpty else { return nil }
+
+        // Return from cache if available
+        if let cached = sessionNameCache[sessionID] {
+            return cached
+        }
+
+        // Resolve via Core Data
+        if let uuid = UUID(uuidString: sessionID) {
+            let context = PersistenceController.shared.container.viewContext
+            let request = Session.fetchRequest()
+            request.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
+            request.fetchLimit = 1
+
+            do {
+                if let session = try context.fetch(request).first {
+                    let name = session.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let finalName = (name?.isEmpty == false) ? name! : "Unknown Session"
+                    // Cache and return
+                    sessionNameCache[sessionID] = finalName
+                    return finalName
+                }
+            } catch {
+                print("❌ Error resolving session name for \(sessionID): \(error)")
+            }
+        }
+
+        // Cache negative result to avoid repeat fetches
+        sessionNameCache[sessionID] = "Unknown Session"
+        return "Unknown Session"
     }
 }
 
@@ -223,7 +245,7 @@ struct PhotoDetailItem: View {
                     VStack {
                         Spacer()
 
-                        // Sequence indicator at top
+                        // Sequence indicator and session name
                         if metadata != nil {
                             HStack {
                                 VStack(alignment: .leading) {
@@ -385,4 +407,3 @@ struct PhotoDetailItem: View {
 //     // Create mock photo for preview
 //     // TODO: Re-enable when Core Data setup is stable
 // }
-
