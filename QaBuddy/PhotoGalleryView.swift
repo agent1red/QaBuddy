@@ -34,6 +34,9 @@ struct PhotoGalleryView: View {
     // Delayed loading indicator control
     @State private var showLoadingOverlay = false
 
+    // Session title for navigation bar
+    @State private var sessionTitle: String = "All Photos"
+
     init() {
         _deletionManager = State(initialValue: PhotoDeletionManager(
             context: PersistenceController.shared.container.viewContext
@@ -55,15 +58,6 @@ struct PhotoGalleryView: View {
         case 1: return "1 Photo"
         default: return "\(count) Photos"
         }
-    }
-
-    private var currentSessionName: String {
-        // Use new SessionManager for active session info
-        Task {
-            let sessionInfo = await sessionManager.getCurrentSessionInfo()
-            return sessionInfo == "No Active Session" ? "All Photos" : sessionInfo
-        }
-        return sessionManager.activeSession?.name ?? "All Photos"
     }
 
     // Grid columns
@@ -239,7 +233,7 @@ struct PhotoGalleryView: View {
                 galleryContent
                 loadingOverlay
             }
-            .navigationTitle(currentSessionName)
+            .navigationTitle(sessionTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 toolbarItems
@@ -277,13 +271,16 @@ struct PhotoGalleryView: View {
         }
 
         .task {
+            await refreshSessionTitle()
             await loadPhotos()
         }
         .refreshable {
+            await refreshSessionTitle()
             await loadPhotos()
         }
         .onReceive(sessionManager.objectWillChange) { _ in
             Task {
+                await refreshSessionTitle()
                 await loadPhotos()
             }
         }
@@ -400,6 +397,13 @@ struct PhotoGalleryView: View {
         } else {
             // Select all
             selectedPhotosForBulkDelete.formUnion(Set(uniquePhotos))
+        }
+    }
+
+    private func refreshSessionTitle() async {
+        let info = await sessionManager.getCurrentSessionInfo()
+        await MainActor.run {
+            sessionTitle = (info == "No Active Session") ? "All Photos" : info
         }
     }
 }
@@ -634,4 +638,3 @@ struct PhotoListItem: View {
     return PhotoGalleryView()
         .environment(\.managedObjectContext, persistence.container.viewContext)
 }
-

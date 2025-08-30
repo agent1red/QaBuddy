@@ -8,6 +8,7 @@
 import SwiftUI
 import AVFoundation
 import UIKit
+import Combine
 
 struct CameraView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> CameraViewController {
@@ -58,6 +59,9 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     private var orientationObserver: NSObjectProtocol?
     private var currentVideoOrientation: AVCaptureVideoOrientation = .portrait
 
+    // Combine
+    private var cancellables = Set<AnyCancellable>()
+
     init() {
         self.initialVolume = createVolumeBaseline()
         super.init(nibName: nil, bundle: nil)
@@ -79,6 +83,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         setupSequenceOverlay()
         setupSessionHeader()
         setupOrientationUpdates()
+        setupSessionObservers()
 
         // Generator is reusable
         captureFeedback.prepare()
@@ -90,6 +95,10 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         startCamera()
         resumeVolumeDetection()
         updateVideoOrientation()
+
+        // Ensure overlays reflect the latest session immediately when returning to camera
+        updateSessionHeader()
+        updateSequenceOverlay()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -395,6 +404,19 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         })
     }
 
+    // MARK: - Session Observers
+
+    private func setupSessionObservers() {
+        // Update overlays immediately when the active session changes
+        sessionManager.$activeSession
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateSessionHeader()
+                self?.updateSequenceOverlay()
+            }
+            .store(in: &cancellables)
+    }
+
     // MARK: - AVCapturePhotoCaptureDelegate
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
@@ -573,6 +595,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             NotificationCenter.default.removeObserver(orientationObserver)
         }
         UIDevice.current.endGeneratingDeviceOrientationNotifications()
+        cancellables.removeAll()
         stopCamera()
     }
 }
