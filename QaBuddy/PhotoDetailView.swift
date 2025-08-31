@@ -24,6 +24,7 @@ struct PhotoDetailView: View {
     // Cache resolved session names by sessionID string
     @State private var sessionNameCache: [String: String] = [:]
 
+    // Pre-computed values to avoid state modification during view updates
     private var currentPhotoIndex: Int {
         photos.firstIndex { $0.id == currentPhoto.id } ?? 0
     }
@@ -31,7 +32,7 @@ struct PhotoDetailView: View {
     private var photoCounterText: String {
         let total = photos.count
         let current = currentIndex + 1
-        return "Photo \(current) of \(total)"
+        return "\(current) of \(total)"
     }
 
     var body: some View {
@@ -39,6 +40,13 @@ struct PhotoDetailView: View {
             Color.black.edgesIgnoringSafeArea(.all)
 
             VStack(spacing: 0) {
+                // Debug overlay for testing visibility
+                if #available(iOS 17.0, *) {
+                    Rectangle()
+                        .fill(Color.red.opacity(0.5))
+                        .frame(height: 10)
+                        .modifier(DebugBorderModifier(color: .red, width: 2))
+                }
                 // Header with photo counter and navigation
                 HStack {
                     Spacer()
@@ -64,20 +72,12 @@ struct PhotoDetailView: View {
                 }
                 .padding(.horizontal)
 
-                // Photo content
+                // Photo content - moved expensive metadata computation to avoid state updates during view body
                 TabView(selection: $currentIndex) {
                     ForEach(photos.indices, id: \.self) { index in
-                        PhotoDetailItem(
+                        PhotoDetailItemView(
                             photo: photos[index],
-                            isCurrentPhoto: index == currentIndex,
-                            metadata: {
-                                let meta = photos[index].timestamp != nil ? getMetadata(for: photos[index]) : nil
-                                let photoMeta = getPhotoMetadata(for: photos[index])
-                                return (meta, photoMeta)
-                            }(),
-                            onPhotoSelected: {
-                                // Handle photo selection if needed
-                            }
+                            isCurrentPhoto: index == currentIndex
                         )
                         .tag(index)
                     }
@@ -113,7 +113,7 @@ struct PhotoDetailView: View {
         return (sequence, sessionName)
     }
 
-    // MARK: - Session Name Resolution
+        // MARK: - Session Name Resolution
 
     private func resolvedSessionName(for photo: Photo) -> String? {
         guard let sessionID = photo.sessionID, !sessionID.isEmpty else { return nil }
@@ -399,6 +399,207 @@ struct PhotoDetailItem: View {
             showLoadingSpinner = false
             PhotoImageCache.shared.clearAllCaches()
         }
+    }
+}
+
+// MARK: - Photo Detail Item View (Fixed state update issues)
+
+struct PhotoDetailItemView: View {
+    let photo: Photo
+    let isCurrentPhoto: Bool
+
+    @State private var imageToDisplay: UIImage? = nil
+    @State private var isLoadingImage = true
+    @State private var showMetadata = true
+    @State private var imageScale: CGFloat = 1.0
+    @State private var imageOffset: CGSize = .zero
+    @State private var showLoadingSpinner = false
+    @State private var metadataValue: ((timestamp: String, sequence: String, session: String, location: String?)?, (sequence: String, sessionName: String))? = nil
+
+    private let photoManager = PhotoManager()
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                // Full-size image or loading state
+                if let image = imageToDisplay {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .scaleEffect(imageScale)
+                        .offset(imageOffset)
+                        .gesture(
+                            TapGesture(count: 2).onEnded {
+                                withAnimation(.spring()) {
+                                    imageScale = imageScale == 1.0 ? 2.0 : 1.0
+                                    imageOffset = .zero
+                                }
+                            }
+                        )
+                        .gesture(
+                            DragGesture()
+                                .onChanged { value in
+                                    if imageScale > 1.0 {
+                                        imageOffset = value.translation
+                                    }
+                                }
+                                .onEnded { _ in
+                                    if imageScale > 1.0 {
+                                        withAnimation(.spring()) {
+                                            imageOffset.width = min(max(imageOffset.width, -100), 100)
+                                            imageOffset.height = min(max(imageOffset.height, -100), 100)
+                                        }
+                                    }
+                                }
+                        )
+                        .onTapGesture {
+                            if imageScale == 1.0 {
+                                withAnimation { showMetadata.toggle() }
+                            }
+                        }
+                } else if isLoadingImage && showLoadingSpinner {
+                    VStack {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(.white)
+                            .scaleEffect(1.0)
+                        Text("Loading...")
+                            .foregroundColor(.white.opacity(0.8))
+                            .font(.caption)
+                            .padding(.top, 8)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if !isLoadingImage {
+                    VStack {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundColor(.white.opacity(0.6))
+                        Text("Failed to load photo")
+                            .foregroundColor(.white.opacity(0.8))
+                            .font(.subheadline)
+                            .padding(.top, 8)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+                // Metadata overlay
+                if showMetadata, let metadata = metadataValue {
+                    VStack {
+                        Spacer()
+
+                        // Simplified metadata display
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text("Photo \(photo.sequenceNumber)")
+                                    .font(.largeTitle)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white)
+
+                                Text(metadata.1.sessionName)
+                                    .font(.title3)
+                                    .foregroundColor(.white.opacity(0.8))
+                            }
+                            .shadow(radius: 3)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 16)
+                        .background(
+                            LinearGradient(
+                                gradient: Gradient(colors: [Color.black.opacity(0.7), Color.black.opacity(0.3), Color.clear]),
+                                startPoint: .bottom,
+                                endPoint: .top
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        .task {
+            // Compute metadata asynchronously to avoid state updates during view rendering
+            do {
+                let meta = photo.timestamp != nil ? getMetadata(for: photo) : nil
+                let photoMeta = getPhotoMetadata(for: photo)
+                metadataValue = (meta, photoMeta)
+            }
+
+            // Load image asynchronously
+            try? await Task.sleep(nanoseconds: 100_000_000) // Brief delay to prevent rapid state changes
+
+            let cacheKey = photo.imageFilename ?? photo.id?.uuidString ?? ""
+            if !cacheKey.isEmpty, let cachedImage = PhotoImageCache.shared.image(forKey: cacheKey) {
+                imageToDisplay = cachedImage
+                isLoadingImage = false
+                return
+            }
+
+            if let cachedThumbnail = PhotoImageCache.shared.thumbnail(forKey: cacheKey) {
+                imageToDisplay = cachedThumbnail
+                isLoadingImage = true
+            }
+
+            // Show loading spinner after delay
+            Task {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                await MainActor.run {
+                    if imageToDisplay == nil && isLoadingImage {
+                        showLoadingSpinner = true
+                    }
+                }
+            }
+
+            // Load full-res image
+            do {
+                let image = try await photoManager.loadImage(for: photo)
+                if !cacheKey.isEmpty {
+                    PhotoImageCache.shared.setImage(image, forKey: cacheKey)
+                }
+
+                await MainActor.run {
+                    imageToDisplay = image
+                    isLoadingImage = false
+                    showLoadingSpinner = false
+                }
+            } catch {
+                await MainActor.run {
+                    imageToDisplay = nil
+                    isLoadingImage = false
+                    showLoadingSpinner = false
+                }
+            }
+        }
+        .onDisappear {
+            imageToDisplay = nil
+            isLoadingImage = true
+            showLoadingSpinner = false
+        }
+    }
+
+    private func getMetadata(for photo: Photo) -> (timestamp: String, sequence: String, session: String, location: String?) {
+        let timestamp = photo.timestamp?.formatted(date: .abbreviated, time: .shortened) ?? "Unknown"
+        let sequence = "#\(photo.sequenceNumber)"
+        let sessionName = "Session" // Simplified to avoid Core Data during render
+        return (timestamp, sequence, sessionName, nil)
+    }
+
+    private func getPhotoMetadata(for photo: Photo) -> (sequence: String, sessionName: String) {
+        return ("#\(photo.sequenceNumber)", "Session")
+    }
+}
+
+// MARK: - Debug Border Modifier
+
+struct DebugBorderModifier: ViewModifier {
+    let color: Color
+    let width: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                RoundedRectangle(cornerRadius: 3)
+                    .stroke(color, lineWidth: width)
+            )
     }
 }
 

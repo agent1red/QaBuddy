@@ -6,8 +6,8 @@
 //
 
 import SwiftUI
-import AVFoundation
 import UIKit
+import AVFoundation
 import CoreData
 
 struct ContentView: View {
@@ -16,7 +16,7 @@ struct ContentView: View {
     @State private var showingSessionHistory = false
     @State private var totalSessions: Int = 0
     @State private var activeSessionCount: Int = 0
-    @ObservedObject private var sessionManager = SessionManager.shared
+    @StateObject private var sessionManager = SessionManager.shared
     @Environment(\.scenePhase) private var scenePhase
 
     let persistenceController = PersistenceController.shared
