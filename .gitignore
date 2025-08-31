@@ -2,3 +2,73 @@ QaBuddy.xcodeproj/project_overview.md
 QaBuddy.xcodeproj/taskList.md
 QaBuddy.xcodeproj/taskListPhase1.md
 .DS_Store
+QaBuddy.xcodeproj/taskListPhase2.md
+
+# Swift/iOS Build Files
+build/
+*.xcscmblueprint
+*.xcrequired
+*.xccheckout
+*.playgroundbook
+*.xcuserstate
+*.xccurrentversion
+*.xcode-format-options.json
+*.json
+*.xml
+
+# Xcode
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.moved-aside
+*.xcuserdatad/
+
+# Project Files
+*.xcodeproj/project.pbxproj
+
+# Derived Data
+DerivedData/
+build/Debug/
+build/Release/
+
+# Swift Package Manager
+.build/
+Packages/
+Package.pins
+Package.resolved
+*.xcodeproj/xcuserdata/
+
+# Carthage
+Carthage/Build/
+
+# CocoaPods
+Pods/
+vendor/
+
+# iOS/Simulator
+*.dSYM/
+*.ipa
+*.app.dSYM.zip
+*.xcappdata
+
+# macOS
+*.dmg
+
+# Temporary Files
+*~
+*.tmp
+*.log
+*.process
+*.pid
+*.swp
+.DS_Store
+
+# Environment
+.env
+.env.local
+QaBuddy.xcodeproj/project.xcworkspace/xcuserdata/kevinhudson.xcuserdatad/UserInterfaceState.xcuserstate
