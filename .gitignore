@@ -27,6 +27,9 @@ build/
 !default.perspectivev3
 *.moved-aside
 *.xcuserdatad/
+**/*.xcuserdatad/
+**/*.xcuserstate
+**/*.xcuserdata/
 
 # Project Files
 *.xcodeproj/project.pbxproj
@@ -71,4 +74,3 @@ vendor/
 # Environment
 .env
 .env.local
-QaBuddy.xcodeproj/project.xcworkspace/xcuserdata/kevinhudson.xcuserdatad/UserInterfaceState.xcuserstate
