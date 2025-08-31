@@ -56,8 +56,6 @@ class PhotoManager: @unchecked Sendable {
         // Thumbnail creation and saving is done in a detached task to avoid blocking the current task
         // Both image saving and thumbnail generation/saving are awaited concurrently for efficiency
 
-        async let saveFullImage = photoStorage.saveImage(image, filename: imageFilename)
-
         async let saveThumbnail: Void = Task.detached(priority: .userInitiated) {
             // Generate thumbnail on background thread
             let thumbnail = ThumbnailGenerator.generate(image: image, size: .medium)
@@ -67,8 +65,8 @@ class PhotoManager: @unchecked Sendable {
             PhotoImageCache.shared.setThumbnail(thumbnail, forKey: thumbnailFilename)
         }.value
 
-        // Await both image and thumbnail saving
-        try await saveFullImage
+        // Save image directly and await thumbnail in parallel
+        try await photoStorage.saveImage(image, filename: imageFilename)
         try await saveThumbnail
 
         // Cache the saved full-size image after saving

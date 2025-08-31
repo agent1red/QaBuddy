@@ -57,7 +57,8 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
 
     // Orientation handling
     private var orientationObserver: NSObjectProtocol?
-    private var currentVideoOrientation: AVCaptureVideoOrientation = .portrait
+    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    private var rotationObservation: NSKeyValueObservation?
 
     // Combine
     private var cancellables = Set<AnyCancellable>()
@@ -217,6 +218,9 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             // Initialize current zoom factor from device
             currentZoomFactor = device.videoZoomFactor
             initialZoomFactor = currentZoomFactor
+
+            // Initialize rotation coordinator for iOS 17+ compatibility
+            rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: previewLayer)
         } catch {
             Logger.error("Error setting up camera: \(error.localizedDescription)")
             errorFeedback.notificationOccurred(.error)
@@ -231,6 +235,15 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
         previewLayer?.videoGravity = .resizeAspectFill
         previewLayer?.frame = view.bounds
+
+        // Initialize rotation coordinator after preview layer is created
+        if let device = captureDevice {
+            rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: previewLayer)
+
+            // Observe rotations using KVO
+            setupRotationObserver()
+        }
+
         view.layer.addSublayer(previewLayer!)
         updateVideoOrientation()
     }
@@ -381,9 +394,12 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         let settings = AVCapturePhotoSettings()
         settings.flashMode = .off
 
-        // Ensure the photo output uses the current orientation
-        if let connection = photoOutput?.connections.first, connection.isVideoOrientationSupported {
-            connection.videoOrientation = currentVideoOrientation
+        // Apply rotation angle from iOS 17+ rotation coordinator
+        if let coordinator = rotationCoordinator {
+            let rotationAngle = coordinator.videoRotationAngleForHorizonLevelCapture
+            if let connection = photoOutput?.connections.first, connection.isVideoRotationAngleSupported(rotationAngle) {
+                connection.videoRotationAngle = rotationAngle
+            }
         }
 
         photoOutput?.capturePhoto(with: settings, delegate: self)
@@ -548,34 +564,48 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         }
     }
 
+    private func setupRotationObserver() {
+        // Observe rotation changes using iOS 17+ KVO approach
+        guard let coordinator = rotationCoordinator else { return }
+
+        rotationObservation = coordinator.observe(
+            \.videoRotationAngleForHorizonLevelPreview,
+            options: [.old, .new]
+        ) { [weak self] coordinator, change in
+            DispatchQueue.main.async {
+                if let connection = self?.previewLayer?.connection {
+                    // Check if rotation angle is supported before applying
+                    if connection.isVideoRotationAngleSupported(coordinator.videoRotationAngleForHorizonLevelPreview) {
+                        connection.videoRotationAngle = coordinator.videoRotationAngleForHorizonLevelPreview
+                    }
+                }
+
+                if let connection = self?.photoOutput?.connections.first {
+                    if connection.isVideoRotationAngleSupported(coordinator.videoRotationAngleForHorizonLevelPreview) {
+                        connection.videoRotationAngle = coordinator.videoRotationAngleForHorizonLevelPreview
+                    }
+                }
+            }
+        }
+    }
+
     private func updateVideoOrientation() {
-        let deviceOrientation = UIDevice.current.orientation
-
-        // Map UIDeviceOrientation to AVCaptureVideoOrientation
-        let newVideoOrientation: AVCaptureVideoOrientation
-        switch deviceOrientation {
-        case .landscapeLeft:
-            newVideoOrientation = .landscapeRight   // camera sensor vs UI coords
-        case .landscapeRight:
-            newVideoOrientation = .landscapeLeft
-        case .portraitUpsideDown:
-            newVideoOrientation = .portraitUpsideDown
-        case .portrait:
-            fallthrough
-        default:
-            newVideoOrientation = .portrait
+        // Apply rotation angle using iOS 17+ RotationCoordinator APIs
+        guard let coordinator = rotationCoordinator else {
+            Logger.warn("Rotation coordinator not available")
+            return
         }
 
-        currentVideoOrientation = newVideoOrientation
+        let rotationAngle = coordinator.videoRotationAngleForHorizonLevelCapture
 
-        // Apply to preview layer
-        if let connection = previewLayer?.connection, connection.isVideoOrientationSupported {
-            connection.videoOrientation = newVideoOrientation
+        // Apply to preview layer connection
+        if let connection = previewLayer?.connection, connection.isVideoRotationAngleSupported(rotationAngle) {
+            connection.videoRotationAngle = rotationAngle
         }
 
-        // Also set on photo output connection so captures are upright
-        if let connection = photoOutput?.connections.first, connection.isVideoOrientationSupported {
-            connection.videoOrientation = newVideoOrientation
+        // Apply to photo output connection so captures are upright
+        if let connection = photoOutput?.connections.first, connection.isVideoRotationAngleSupported(rotationAngle) {
+            connection.videoRotationAngle = rotationAngle
         }
     }
 
@@ -852,6 +882,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         if let foregroundObserver = foregroundObserver {
             NotificationCenter.default.removeObserver(foregroundObserver)
         }
+        rotationObservation?.invalidate()  // Invalidate rotation observer
         UIDevice.current.endGeneratingDeviceOrientationNotifications()
         zoomHideWorkItem?.cancel()
         cancellables.removeAll()

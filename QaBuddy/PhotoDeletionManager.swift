@@ -38,11 +38,11 @@ class PhotoDeletionManager {
     // MARK: - Private Methods
 
     private func performDeletion(_ photos: [Photo]) async throws {
-        // Sort by sequence number for proper renumbering
-        let sortedPhotos = photos.sorted { $0.sequenceNumber < $1.sequenceNumber }
-
         // Perform all operations on MainActor (Core Data is not Sendable)
         try await MainActor.run {
+            // Sort by sequence number for proper renumbering within MainActor
+            let sortedPhotos = photos.sorted { $0.sequenceNumber < $1.sequenceNumber }
+
             // Delete all photos from database and files
             for photo in sortedPhotos {
                 print("🗑️ Deleting photo \(photo.sequenceNumber) from session \(photo.sessionID ?? "unknown")")
