@@ -1,4 +1,4 @@
-# QA Buddy Phase 2 - Quick Look Markup Implementation (iOS 17+)
+# QA Buddy iOS App
 
 ## Overview
 Phase 2 implements iOS native Quick Look with Markup as the primary annotation solution for QA Buddy, specifically for iOS 17 and later. This integrates with the existing Core Data model from Phase 1 that includes Photo and Session entities.
