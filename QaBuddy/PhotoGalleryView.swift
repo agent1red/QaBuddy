@@ -86,7 +86,11 @@ struct PhotoGalleryView: View {
                                 isBulkSelectionMode: isBulkSelectionMode,
                                 isSelected: selectedPhotosForBulkDelete.contains(photo),
                                 onSelectionToggle: { togglePhotoSelection(photo) },
-                                onDeleteSingle: { confirmDelete(for: photo) }
+                                onDeleteSingle: { confirmDelete(for: photo) },
+                                onAnnotationRequested: {
+                                    selectedPhoto = photo
+                                    // Navigate to detail view to trigger annotation
+                                }
                             )
                             .onTapGesture {
                                 if isBulkSelectionMode {
@@ -416,6 +420,7 @@ struct PhotoGridItem: View {
     let isSelected: Bool
     let onSelectionToggle: () -> Void
     let onDeleteSingle: () -> Void
+    let onAnnotationRequested: () -> Void
 
     @State private var imageOpacity: Double = 0.0
     @State private var displayedImage: UIImage? = nil
@@ -484,6 +489,25 @@ struct PhotoGridItem: View {
             .clipShape(Capsule())
             .padding(8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+
+            // Green annotation badge (top-right corner) - Aviation-style markup indicator
+            if photo.hasAnnotations {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Image(systemName: "pencil.circle.fill")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 20, height: 20)
+                            .foregroundColor(.green)
+                            .background(Color.white.opacity(0.9))
+                            .clipShape(Circle())
+                            .shadow(radius: 2)
+                            .padding(4)
+                    }
+                    Spacer()
+                }
+            }
         }
         .onAppear {
             loadThumbnailOrCache()

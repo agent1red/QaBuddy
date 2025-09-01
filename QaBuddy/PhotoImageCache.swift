@@ -5,6 +5,7 @@
 //  Created for performance optimization and memory management
 //
 
+import Foundation
 import UIKit
 
 /// Singleton NSCache-based image cache for thumbnails and full-size images
@@ -45,6 +46,14 @@ final class PhotoImageCache {
     
     func image(forKey key: String) -> UIImage? {
         imageCache.object(forKey: key as NSString)
+    }
+
+    func removeImage(forKey key: String) {
+        imageCache.removeObject(forKey: key as NSString)
+    }
+
+    func removeThumbnail(forKey key: String) {
+        thumbnailCache.removeObject(forKey: key as NSString)
     }
 
     @objc func clearAllCaches() {

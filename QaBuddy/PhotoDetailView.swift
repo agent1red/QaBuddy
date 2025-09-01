@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreData
+import UIKit
 
 struct PhotoDetailView: View {
     let photos: [Photo]
@@ -17,6 +18,8 @@ struct PhotoDetailView: View {
 
     // State
     @State private var currentIndex: Int = 0
+    @State private var showingAnnotationView = false
+    @State private var forceImageRefresh: Bool = false // Force refresh after annotation
 
     // Managers
     private let photoManager = PhotoManager()
@@ -40,13 +43,6 @@ struct PhotoDetailView: View {
             Color.black.edgesIgnoringSafeArea(.all)
 
             VStack(spacing: 0) {
-                // Debug overlay for testing visibility
-                if #available(iOS 17.0, *) {
-                    Rectangle()
-                        .fill(Color.red.opacity(0.5))
-                        .frame(height: 10)
-                        .modifier(DebugBorderModifier(color: .red, width: 2))
-                }
                 // Header with photo counter and navigation
                 HStack {
                     Spacer()
@@ -60,6 +56,26 @@ struct PhotoDetailView: View {
                         .clipShape(Capsule())
 
                     Spacer()
+
+                    // Annotation button for iOS 17+
+                    if #available(iOS 17.0, *) {
+                        Button(action: {
+                            Logger.info("Opening annotation view for photo #\(currentPhoto.sequenceNumber)")
+                            showingAnnotationView = true
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.white.opacity(0.2))
+                                    .frame(width: 44, height: 44)
+                                Image(systemName: currentPhoto.hasAnnotations ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 24, height: 24)
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        .padding(.trailing, 8)
+                    }
 
                     Button(action: {
                         selectedPhoto = nil
@@ -79,15 +95,29 @@ struct PhotoDetailView: View {
                             photo: photos[index],
                             isCurrentPhoto: index == currentIndex
                         )
+                        .id(photos[index].id) // Add photo ID for refreshing
                         .tag(index)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .indexViewStyle(.page(backgroundDisplayMode: .always))
             }
+
+            // Annotation overlay
+            if showingAnnotationView, #available(iOS 17.0, *) {
+                if let currentPhoto = photos.indices.contains(currentIndex) ? photos[currentIndex] : nil {
+                    Color.clear.overlay(
+                        PhotoDetailViewAnnotation(photo: currentPhoto)
+                    )
+                    .ignoresSafeArea()
+                }
+            }
         }
         .onAppear {
             currentIndex = currentPhotoIndex
+        }
+        .onChange(of: forceImageRefresh) { _, _ in
+            Logger.info("🔄 Force image refresh triggered")
         }
     }
 
@@ -149,20 +179,18 @@ struct PhotoDetailView: View {
     }
 }
 
-// MARK: - Photo Detail Item
+// MARK: - Photo Detail Item View (Photo Detail Tab View)
 
-struct PhotoDetailItem: View {
+struct PhotoDetailItemView: View {
     let photo: Photo
     let isCurrentPhoto: Bool
-    let metadata: ((timestamp: String, sequence: String, session: String, location: String?)?, (sequence: String, sessionName: String))?
-    let onPhotoSelected: () -> Void
 
     @State private var imageToDisplay: UIImage? = nil
     @State private var isLoadingImage = true
     @State private var showMetadata = true
     @State private var imageScale: CGFloat = 1.0
     @State private var imageOffset: CGSize = .zero
-    @State private var showLoadingSpinner = false // Will show loading spinner only for slow loads (>0.5s)
+    @State private var showLoadingSpinner = false
 
     private let photoManager = PhotoManager()
 
@@ -211,253 +239,6 @@ struct PhotoDetailItem: View {
                                 }
                             }
                         }
-                } else if isLoadingImage {
-                    // Show loading spinner only if loading is slow (>0.5s) to prevent UI flicker
-                    if showLoadingSpinner {
-                        VStack {
-                            ProgressView()
-                                .progressViewStyle(.circular)
-                                .tint(.white)
-                                .scaleEffect(1.0)
-                            Text("Loading...")
-                                .foregroundColor(.white.opacity(0.8))
-                                .font(.caption)
-                                .padding(.top, 8)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                } else {
-                    // Error state - photo couldn't be loaded
-                    VStack {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.largeTitle)
-                            .foregroundColor(.white.opacity(0.6))
-                        Text("Failed to load photo")
-                            .foregroundColor(.white.opacity(0.8))
-                            .font(.subheadline)
-                            .padding(.top, 8)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-
-                // Metadata overlay
-                if showMetadata {
-                    VStack {
-                        Spacer()
-
-                        // Sequence indicator and session name
-                        if metadata != nil {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text("Photo \(photo.sequenceNumber)")
-                                        .font(.largeTitle)
-                                        .fontWeight(.bold)
-                                        .foregroundColor(.white)
-
-                                    if let metadataValue = metadata {
-                                        Text(metadataValue.1.sessionName)
-                                            .font(.title3)
-                                            .foregroundColor(.white.opacity(0.8))
-                                    }
-                                }
-                                .shadow(radius: 3)
-
-                                Spacer()
-                            }
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 16)
-                            .background(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [Color.black.opacity(0.7), Color.black.opacity(0.3), Color.clear]),
-                                    startPoint: .bottom,
-                                    endPoint: .top
-                                )
-                            )
-                        }
-
-                        // Bottom metadata panel
-                        if let metadataValue = metadata, let meta = metadataValue.0 {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Image(systemName: "calendar")
-                                    Text("Time: \(meta.timestamp)")
-                                }
-
-                                HStack {
-                                    Image(systemName: "number.circle")
-                                    Text("Sequence: \(meta.sequence)")
-                                }
-
-                                HStack {
-                                    Image(systemName: "square.stack.3d.up")
-                                    Text("Session: \(meta.session)")
-                                }
-
-                                if let location = meta.location {
-                                    HStack {
-                                        Image(systemName: "location")
-                                        Text("Location: \(location)")
-                                    }
-                                }
-                            }
-                            .font(.subheadline)
-                            .foregroundColor(.white)
-                            .padding(16)
-                            .background(Color.black.opacity(0.7))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, geometry.safeAreaInsets.bottom + 20)
-                        } else {
-                            // Fallback metadata display
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Photo \(photo.sequenceNumber)")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
-
-                                if let orientation = photo.deviceOrientation {
-                                    Text("Orientation: \(orientation)")
-                                        .font(.subheadline)
-                                        .foregroundColor(.white.opacity(0.8))
-                                }
-                            }
-                            .padding(16)
-                            .background(Color.black.opacity(0.7))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, geometry.safeAreaInsets.bottom + 20)
-                        }
-                    }
-                }
-            }
-        }
-        .task {
-            // First, try to load full-res image from cache
-            let cacheKey = photo.imageFilename ?? photo.id?.uuidString ?? ""
-            if !cacheKey.isEmpty, let cachedFullImage = PhotoImageCache.shared.image(forKey: cacheKey) {
-                imageToDisplay = cachedFullImage
-                isLoadingImage = false
-                showLoadingSpinner = false
-                print("PhotoDetailItem: Loaded full-res image from cache for photo \(photo.sequenceNumber)")
-                return
-            }
-
-            // Not in cache, try to show thumbnail first if available
-            if !cacheKey.isEmpty, let cachedThumbnail = PhotoImageCache.shared.thumbnail(forKey: cacheKey) {
-                imageToDisplay = cachedThumbnail
-                isLoadingImage = true
-                print("PhotoDetailItem: Loaded thumbnail from cache for photo \(photo.sequenceNumber), loading high-res...")
-            }
-
-            // Start a delayed task to show loading spinner only if loading is slow (>0.5s)
-            Task {
-                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                await MainActor.run {
-                    if imageToDisplay == nil && isLoadingImage {
-                        showLoadingSpinner = true
-                    }
-                }
-            }
-
-            // Load full-res image asynchronously
-            do {
-                print("PhotoDetailItem: Loading image for photo \(photo.sequenceNumber)")
-                let image = try await photoManager.loadImage(for: photo)
-
-                // Save to cache
-                if !cacheKey.isEmpty {
-                    PhotoImageCache.shared.setImage(image, forKey: cacheKey)
-                }
-
-                // Set the loaded image
-                await MainActor.run {
-                    imageToDisplay = image
-                    isLoadingImage = false
-                    showLoadingSpinner = false
-                }
-
-                print("PhotoDetailItem: Successfully loaded image for photo \(photo.sequenceNumber)")
-            } catch {
-                print("PhotoDetailItem: Error loading image for photo \(photo.sequenceNumber): \(error)")
-                await MainActor.run {
-                    imageToDisplay = nil
-                    isLoadingImage = false
-                    showLoadingSpinner = false
-                }
-            }
-        }
-        .onDisappear {
-            // Cleanup when swiping away from this photo
-            imageToDisplay = nil
-            isLoadingImage = true
-            showLoadingSpinner = false
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
-            // Clear image and cache to free memory on memory warning
-            print("PhotoDetailItem: Received memory warning, clearing image and cache")
-            imageToDisplay = nil
-            isLoadingImage = true
-            showLoadingSpinner = false
-            PhotoImageCache.shared.clearAllCaches()
-        }
-    }
-}
-
-// MARK: - Photo Detail Item View (Fixed state update issues)
-
-struct PhotoDetailItemView: View {
-    let photo: Photo
-    let isCurrentPhoto: Bool
-
-    @State private var imageToDisplay: UIImage? = nil
-    @State private var isLoadingImage = true
-    @State private var showMetadata = true
-    @State private var imageScale: CGFloat = 1.0
-    @State private var imageOffset: CGSize = .zero
-    @State private var showLoadingSpinner = false
-    @State private var metadataValue: ((timestamp: String, sequence: String, session: String, location: String?)?, (sequence: String, sessionName: String))? = nil
-
-    private let photoManager = PhotoManager()
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                // Full-size image or loading state
-                if let image = imageToDisplay {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .scaleEffect(imageScale)
-                        .offset(imageOffset)
-                        .gesture(
-                            TapGesture(count: 2).onEnded {
-                                withAnimation(.spring()) {
-                                    imageScale = imageScale == 1.0 ? 2.0 : 1.0
-                                    imageOffset = .zero
-                                }
-                            }
-                        )
-                        .gesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    if imageScale > 1.0 {
-                                        imageOffset = value.translation
-                                    }
-                                }
-                                .onEnded { _ in
-                                    if imageScale > 1.0 {
-                                        withAnimation(.spring()) {
-                                            imageOffset.width = min(max(imageOffset.width, -100), 100)
-                                            imageOffset.height = min(max(imageOffset.height, -100), 100)
-                                        }
-                                    }
-                                }
-                        )
-                        .onTapGesture {
-                            if imageScale == 1.0 {
-                                withAnimation { showMetadata.toggle() }
-                            }
-                        }
                 } else if isLoadingImage && showLoadingSpinner {
                     VStack {
                         ProgressView()
@@ -484,23 +265,25 @@ struct PhotoDetailItemView: View {
                 }
 
                 // Metadata overlay
-                if showMetadata, let metadata = metadataValue {
+                if showMetadata {
                     VStack {
                         Spacer()
 
-                        // Simplified metadata display
+                        // Sequence indicator and session name
                         HStack {
                             VStack(alignment: .leading) {
-                                Text("Photo \(photo.sequenceNumber)")
+                                Text("Photo #\(photo.sequenceNumber)")
                                     .font(.largeTitle)
                                     .fontWeight(.bold)
                                     .foregroundColor(.white)
+                                    .shadow(radius: 3)
 
-                                Text(metadata.1.sessionName)
+                                Text("Session") // Simplified session display
                                     .font(.title3)
                                     .foregroundColor(.white.opacity(0.8))
+                                    .shadow(radius: 3)
                             }
-                            .shadow(radius: 3)
+
                             Spacer()
                         }
                         .padding(.horizontal, 24)
@@ -512,99 +295,102 @@ struct PhotoDetailItemView: View {
                                 endPoint: .top
                             )
                         )
+
+                        // Bottom metadata panel
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Image(systemName: "calendar")
+                                Text("Time: \(photo.timestamp?.formatted(date: .abbreviated, time: .shortened) ?? "Unknown")")
+                            }
+
+                            HStack {
+                                Image(systemName: "number.circle")
+                                Text("Sequence: #\(photo.sequenceNumber)")
+                            }
+
+                            HStack {
+                                Image(systemName: "square.stack.3d.up")
+                                Text("Session: Inspection")
+                            }
+
+                            if photo.latitude != 0 || photo.longitude != 0 {
+                                HStack {
+                                    Image(systemName: "location")
+                                    Text("Location: \(String(format: "%.4f, %.4f", photo.latitude, photo.longitude))")
+                                }
+                            }
+                        }
+                        .font(.subheadline)
+                        .foregroundColor(.white)
+                        .padding(16)
+                        .background(Color.black.opacity(0.7))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, geometry.safeAreaInsets.bottom + 20)
                     }
                 }
             }
         }
         .task {
-            // Compute metadata asynchronously to avoid state updates during view rendering
-            do {
-                let meta = photo.timestamp != nil ? getMetadata(for: photo) : nil
-                let photoMeta = getPhotoMetadata(for: photo)
-                metadataValue = (meta, photoMeta)
-            }
-
-            // Load image asynchronously
-            try? await Task.sleep(nanoseconds: 100_000_000) // Brief delay to prevent rapid state changes
-
-            let cacheKey = photo.imageFilename ?? photo.id?.uuidString ?? ""
-            if !cacheKey.isEmpty, let cachedImage = PhotoImageCache.shared.image(forKey: cacheKey) {
-                imageToDisplay = cachedImage
-                isLoadingImage = false
-                return
-            }
-
-            if let cachedThumbnail = PhotoImageCache.shared.thumbnail(forKey: cacheKey) {
-                imageToDisplay = cachedThumbnail
-                isLoadingImage = true
-            }
-
-            // Show loading spinner after delay
-            Task {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                await MainActor.run {
-                    if imageToDisplay == nil && isLoadingImage {
-                        showLoadingSpinner = true
-                    }
-                }
-            }
-
-            // Load full-res image
-            do {
-                let image = try await photoManager.loadImage(for: photo)
-                if !cacheKey.isEmpty {
-                    PhotoImageCache.shared.setImage(image, forKey: cacheKey)
-                }
-
-                await MainActor.run {
-                    imageToDisplay = image
-                    isLoadingImage = false
-                    showLoadingSpinner = false
-                }
-            } catch {
-                await MainActor.run {
-                    imageToDisplay = nil
-                    isLoadingImage = false
-                    showLoadingSpinner = false
-                }
-            }
+            // Load photo asynchronously with progressive loading
+            await loadPhoto()
         }
         .onDisappear {
+            // Cleanup when swiping away from this photo
             imageToDisplay = nil
             isLoadingImage = true
             showLoadingSpinner = false
         }
     }
 
-    private func getMetadata(for photo: Photo) -> (timestamp: String, sequence: String, session: String, location: String?) {
-        let timestamp = photo.timestamp?.formatted(date: .abbreviated, time: .shortened) ?? "Unknown"
-        let sequence = "#\(photo.sequenceNumber)"
-        let sessionName = "Session" // Simplified to avoid Core Data during render
-        return (timestamp, sequence, sessionName, nil)
-    }
+    private func loadPhoto() async {
+        // Try cache first
+        let cacheKey = photo.imageFilename ?? photo.id?.uuidString ?? ""
+        if !cacheKey.isEmpty {
+            if let cachedImage = PhotoImageCache.shared.image(forKey: cacheKey) {
+                Logger.info("Loaded photo from cache for #\(photo.sequenceNumber)")
+                await MainActor.run {
+                    imageToDisplay = cachedImage
+                    isLoadingImage = false
+                }
+                return
+            }
+        }
 
-    private func getPhotoMetadata(for photo: Photo) -> (sequence: String, sessionName: String) {
-        return ("#\(photo.sequenceNumber)", "Session")
+        // Show loading after delay
+        Task {
+            try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
+            if isLoadingImage && imageToDisplay == nil {
+                await MainActor.run {
+                    showLoadingSpinner = true
+                }
+            }
+        }
+
+        // Load full-res image via PhotoManager
+        do {
+            Logger.info("Loading full-res image for photo #\(photo.sequenceNumber)")
+            let image = try await photoManager.loadImage(for: photo)
+
+            // Cache the loaded image
+            if !cacheKey.isEmpty {
+                PhotoImageCache.shared.setImage(image, forKey: cacheKey)
+            }
+
+            await MainActor.run {
+                imageToDisplay = image
+                isLoadingImage = false
+                showLoadingSpinner = false
+            }
+
+            Logger.info("Successfully loaded photo #\(photo.sequenceNumber)")
+        } catch {
+            Logger.error("Failed to load photo #\(photo.sequenceNumber): \(error.localizedDescription)")
+            await MainActor.run {
+                imageToDisplay = nil
+                isLoadingImage = false
+                showLoadingSpinner = false
+            }
+        }
     }
 }
-
-// MARK: - Debug Border Modifier
-
-struct DebugBorderModifier: ViewModifier {
-    let color: Color
-    let width: CGFloat
-
-    func body(content: Content) -> some View {
-        content
-            .overlay(
-                RoundedRectangle(cornerRadius: 3)
-                    .stroke(color, lineWidth: width)
-            )
-    }
-}
-
-// Preview temporarily disabled to resolve compilation issues
-// #Preview {
-//     // Create mock photo for preview
-//     // TODO: Re-enable when Core Data setup is stable
-// }
