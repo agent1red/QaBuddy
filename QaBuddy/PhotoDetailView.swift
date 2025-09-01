@@ -67,7 +67,21 @@ struct PhotoDetailView: View {
                                 quickLookCoordinator = QuickLookCoordinator(photo: currentPhoto)
                                 DispatchQueue.main.async {
                                     quickLookCoordinator?.onAnnotationComplete = { image in
-                                        Logger.info("Annotation completed, refreshing UI")
+                                        Logger.info("Annotation completed, clearing caches and refreshing UI")
+                                        // Clear caches to ensure fresh image load
+                                        let cacheKey = currentPhoto.imageFilename ?? currentPhoto.id?.uuidString ?? ""
+                                        if !cacheKey.isEmpty {
+                                            PhotoImageCache.shared.removeImage(forKey: cacheKey)
+                                            PhotoImageCache.shared.removeThumbnail(forKey: cacheKey)
+                                        }
+
+                                        // Clear URL cache to prevent system-level caching
+                                        URLCache.shared.removeAllCachedResponses()
+
+                                        // Force complete refresh
+                                        currentIndex = currentIndex + 1 // Trigger TabView to recreate
+                                        currentIndex = currentIndex - 1 // Return to current photo
+
                                         forceImageRefresh.toggle()
                                         showingQuickLook = false
                                     }
@@ -109,9 +123,10 @@ struct PhotoDetailView: View {
                     ForEach(photos.indices, id: \.self) { index in
                         PhotoDetailItemView(
                             photo: photos[index],
-                            isCurrentPhoto: index == currentIndex
+                            isCurrentPhoto: index == currentIndex,
+                            refreshTrigger: forceImageRefresh
                         )
-                        .id(photos[index].id) // Add photo ID for refreshing
+                        .id("\(photos[index].id ?? UUID())-\(forceImageRefresh)") // Dynamic ID for refresh
                         .tag(index)
                     }
                 }
@@ -205,6 +220,7 @@ struct PhotoDetailView: View {
 struct PhotoDetailItemView: View {
     let photo: Photo
     let isCurrentPhoto: Bool
+    let refreshTrigger: Bool // When this changes, force fresh image load
 
     @State private var imageToDisplay: UIImage? = nil
     @State private var isLoadingImage = true
@@ -356,6 +372,17 @@ struct PhotoDetailItemView: View {
             // Load photo asynchronously with progressive loading
             await loadPhoto()
         }
+        .onChange(of: refreshTrigger) { _, _ in
+            Logger.info("Refresh triggered for photo #\(photo.sequenceNumber), reloading...")
+            Task {
+                await MainActor.run {
+                    imageToDisplay = nil
+                    isLoadingImage = true
+                    showLoadingSpinner = false
+                }
+                await loadPhoto(forceRefresh: true)
+            }
+        }
         .onDisappear {
             // Cleanup when swiping away from this photo
             imageToDisplay = nil
@@ -364,23 +391,27 @@ struct PhotoDetailItemView: View {
         }
     }
 
-    private func loadPhoto() async {
-        // Try cache first
-        let cacheKey = photo.imageFilename ?? photo.id?.uuidString ?? ""
-        if !cacheKey.isEmpty {
-            if let cachedImage = PhotoImageCache.shared.image(forKey: cacheKey) {
-                Logger.info("Loaded photo from cache for #\(photo.sequenceNumber)")
-                await MainActor.run {
-                    imageToDisplay = cachedImage
-                    isLoadingImage = false
+    private func loadPhoto(forceRefresh: Bool = false) async {
+        // Skip cache if we're forcing a refresh (e.g., after annotation)
+        if !forceRefresh {
+            let cacheKey = photo.imageFilename ?? photo.id?.uuidString ?? ""
+            if !cacheKey.isEmpty {
+                if let cachedImage = PhotoImageCache.shared.image(forKey: cacheKey) {
+                    Logger.info("Loaded photo from cache for #\(photo.sequenceNumber)")
+                    await MainActor.run {
+                        imageToDisplay = cachedImage
+                        isLoadingImage = false
+                    }
+                    return
                 }
-                return
             }
+        } else {
+            Logger.info("Forced refresh - skipping cache for photo #\(photo.sequenceNumber)")
         }
 
         // Show loading after delay
         Task {
-            try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
+            try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s
             if isLoadingImage && imageToDisplay == nil {
                 await MainActor.run {
                     showLoadingSpinner = true
@@ -393,7 +424,8 @@ struct PhotoDetailItemView: View {
             Logger.info("Loading full-res image for photo #\(photo.sequenceNumber)")
             let image = try await photoManager.loadImage(for: photo)
 
-            // Cache the loaded image
+            // Cache the loaded image (even on forced refresh, we want to cache the fresh version)
+            let cacheKey = photo.imageFilename ?? photo.id?.uuidString ?? ""
             if !cacheKey.isEmpty {
                 PhotoImageCache.shared.setImage(image, forKey: cacheKey)
             }
