@@ -626,3 +626,399 @@ extension SessionManager {
         }
     }
 }
+
+// MARK: - Zone Awareness Extensions
+extension SessionManager {
+    /// Check if active session is zone-aware (inspects specific aircraft zones)
+    /// Returns true if inspection type matches aircraft zone definitions
+    var isZoneBasedSession: Bool {
+        guard let sessionType = activeSession?.inspectionType,
+              let zoneInspectionType = InspectionType(rawValue: sessionType) else {
+            return false
+        }
+
+        // Check if this is an aircraft zone inspection (not activity type)
+        let zoneCases: [InspectionType] = [
+            .aDeck, .bDeck, .leftWing, .rightWing, .empennage,
+            .leftMLG, .rightMLG, .leftWheelWell, .rightWheelWell, .nlg,
+            .forwardCargo, .aftCargo, .fortyEightSection,
+            .fwEEBay, .aftEEBay, .leftACBay, .rightACBay, .flightDeck,
+            .leftEngine, .rightEngine, .apu
+        ]
+
+        for zoneCase in zoneCases {
+            if zoneInspectionType == zoneCase {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// Get zone prefix for location formatting (e.g., "Left Wing", "APU")
+    var sessionZonePrefix: String? {
+        guard isZoneBasedSession,
+              let inspectionType = activeSession?.inspectionType,
+              let zoneType = InspectionType(rawValue: inspectionType) else {
+            return nil
+        }
+        return zoneType.rawValue
+    }
+
+    /// Format location string with zone context for UI display
+    /// Example: "Left Wing" + "Leading Edge" = "Left Wing Leading Edge"
+    func formatLocationWithPrefix(_ baseLocation: String) -> String {
+        if let prefix = sessionZonePrefix {
+            return "\(prefix) \(baseLocation)"
+        }
+        return baseLocation
+    }
+
+    /// Get available zones appropriate for the current session type
+    /// For zone-based sessions: returns configured zones from ZoneConfigurationManager
+    /// For activity-based sessions: returns nil (location-based inspections not applicable)
+    var currentSessionZones: [String]? {
+        guard isZoneBasedSession else { return nil }
+
+        // Access ZoneConfigurationManager safely (will resolve at runtime)
+        let zoneManager = NSClassFromString("ZoneConfigurationManager") as? NSObject
+        if let manager = zoneManager,
+           manager.responds(to: NSSelectorFromString("shared")),
+           let sharedManager = manager.perform(NSSelectorFromString("shared"))?.takeUnretainedValue(),
+           sharedManager.responds(to: NSSelectorFromString("currentZones")) {
+
+            if let currentZonesArray = sharedManager.perform(NSSelectorFromString("currentZones"))?.takeUnretainedValue() as? [String] {
+                return currentZonesArray
+            }
+        }
+
+        // Fallback to default zones if manager not available
+        return [
+            "A Deck", "B Deck", "Left Wing", "Right Wing", "Empennage",
+            "Left MLG", "Right MLG", "Left Wheel Well", "Right Wheel Well", "NLG",
+            "Forward Cargo", "Aft Cargo", "48 Section",
+            "FW EE Bay", "Aft EE Bay", "Left AC Bay", "Right AC Bay", "Flight Deck",
+            "Left Engine", "Right Engine", "APU"
+        ]
+    }
+
+    /// Check if current session supports location-based inspections
+    /// Zone-based sessions require location information, activity-based may not
+    var supportsLocationBasedInspections: Bool {
+        return isZoneBasedSession
+    }
+
+    /// Get inspection activity type (Pre-Flight, Post-Flight, etc.)
+    var currentInspectionActivity: String? {
+        guard let sessionType = activeSession?.inspectionType,
+              let inspectionType = InspectionType(rawValue: sessionType) else {
+            return nil
+        }
+
+        // Check if this is an activity type (not zone)
+        let activityCases: [InspectionType] = [
+            .preFlight, .postFlight, .generalMaintenance, .aog, .other
+        ]
+
+        for activityCase in activityCases {
+            if inspectionType == activityCase {
+                return inspectionType.rawValue
+            }
+        }
+
+        return nil
+    }
+
+    /// Get recommended template for current session type
+    /// Returns template name based on inspection type and zone context
+    var recommendedTemplateName: String? {
+        if let activity = currentInspectionActivity {
+            switch activity {
+            case "Pre-Flight":
+                return "Standard QA Write-up"
+            case "Post-Flight":
+                return sessionZonePrefix?.contains("Engine") == true ? "Equipment Defect" : "Standard QA Write-up"
+            case "General Maintenance":
+                return "Standard QA Write-up"
+            case "AOG":
+                return "Equipment Defect"
+            default:
+                return "Standard QA Write-up"
+            }
+        }
+
+        // Zone-based with FOD context
+        if isZoneBasedSession {
+            return "FOD Cleanup"
+        }
+
+        return nil
+    }
+
+    /// Check if current session context supports FOD documentation
+    var supportsFODDocumentation: Bool {
+        guard let sessionType = activeSession?.inspectionType,
+              let inspectionType = InspectionType(rawValue: sessionType) else {
+            return false
+        }
+
+        // FOD is relevant for most zone-based inspections
+        if isZoneBasedSession {
+            return true
+        }
+
+        // Also relevant for maintenance activities
+        let maintenanceActivities: [InspectionType] = [.postFlight, .generalMaintenance, .aog]
+        return maintenanceActivities.contains(inspectionType)
+    }
+
+    /// Get common inspection locations for current zone
+    var commonZoneLocations: [String] {
+        guard let zonePrefix = sessionZonePrefix else { return [] }
+
+        // Provide context-specific location hints for different zones
+        // Provide context-specific location hints for different zones
+// Based on Boeing 787 Dreamliner technical documentation and maintenance manuals
+switch zonePrefix {
+case "Left Wing", "Right Wing":
+    // Composite wing structure with specific inspection points
+    return [
+        "Front Spar",                    // Primary composite load-bearing member
+        "Rear Spar",                     // Secondary composite structure
+        "Wing Rib Station",              // Numbered rib positions along span
+        "Leading Edge Slat",             // With anti-ice heating elements
+        "Inboard Flaperon",              // Combined flap/aileron surface
+        "Outboard Aileron",              // Traditional control surface
+        "Spoiler Panel 1-7",             // Seven panels per wing
+        "Raked Winglet",                 // Lightning strike inspection point
+        "Wing-Body Fairing",             // Root attachment interface
+        "Fuel Access Panel"              // Tank inspection access
+    ]
+    
+case "Left Engine", "Right Engine":
+    // GEnx-1B or Trent 1000 specific components
+    return [
+        "Fan Blades (18)",               // Composite fan blades for GEnx
+        "Fan Case",                      // 111.1-inch diameter on GEnx
+        "Thrust Reverser Cascade",       // Translating sleeve mechanism
+        "IPC Stage 1-2",                 // Intermediate pressure compressor (Trent)
+        "TAPS Combustor",                // Twin-annular pre-swirl
+        "LP Turbine Stage",              // Titanium aluminide construction
+        "VFSG Mount",                    // Variable frequency starter generator
+        "Chevron Nozzle",                // Noise reduction feature
+        "FADEC Controller",              // Full authority digital control
+        "Pylon Interface"                // Engine-to-wing attachment
+    ]
+    
+case "APU":
+    // Hamilton Sundstrand APS 5000 specific
+    return [
+        "Gas Generator Section",         // Primary turbine component
+        "Power Turbine Assembly",        // 1,100 SHP turbine
+        "Accessory Gearbox",             // Drive system for accessories
+        "Fire Detection Loop",           // Kidde system sensor
+        "Extinguisher Squib",            // Fire suppression activation
+        "Electronic Control Box",        // ECB for start sequences
+        "Exhaust Eductor",               // Tail cone outlet
+        "Air Inlet Door",                // Ram air intake
+        "APU Firewall",                  // Station 1016 interface
+        "Mount Structure"                // Vibration isolation system
+    ]
+    
+case "Left MLG", "Right MLG":
+    // Main landing gear with electric brakes
+    return [
+        "Titanium Inner Cylinder",       // Oleo-pneumatic shock strut
+        "EBAC Unit 1-4",                 // Electric brake actuator controller
+        "Drag Brace Lock Link",          // AD 2024-16-01 inspection item
+        "WOW Sensor",                    // Weight-on-wheels microswitch
+        "Side Brace Downlock",           // Visual streamer identification
+        "Hydraulic Supply Line",         // 5000 PSI system
+        "Wheel Hub Assembly",            // Four wheels per gear
+        "Tire Pressure Sensor",          // TPMS monitoring
+        "Door Actuator",                 // Retraction mechanism
+        "Semi-Levered Strut"             // 787-10 specific
+    ]
+    
+case "NLG", "Nose Landing Gear":
+    // Nose gear specific components
+    return [
+        "Steering Actuator",             // 70-degree max angle
+        "Centering Cam",                 // Alignment mechanism
+        "Dual Wheel Assembly",           // Non-braked configuration
+        "Taxi Light Mount",              // Integrated lighting
+        "Tow Bar Attachment",            // Ground handling interface
+        "Shimmy Damper",                 // Vibration control
+        "Extension Actuator",            // Deployment mechanism
+        "Door Linkage",                  // Bay door coordination
+        "Position Sensor",               // Gear position indication
+        "Drag Strut"                     // Structural support member
+    ]
+    
+case "FW EE Bay", "Forward EE Bay":
+    // Forward electrical equipment bay
+    return [
+        "CCR Cabinet",                   // Common computing resource
+        "FCE Cabinet L/C1/C2",           // Flight control electronics
+        "P300-P600 Panel",               // Power distribution
+        "Li-Ion Battery",                // Main battery compartment
+        "Battery Charger",               // BCU unit
+        "E1/E2 Rack",                    // Primary avionics rack
+        "Wire Bundle W4100",             // Main routing harness
+        "Cooling Duct",                  // Thermal management
+        "Ground Stud",                   // Bonding point
+        "Access Door"                    // Maintenance entry
+    ]
+    
+case "Aft EE Bay":
+    // Aft electrical equipment bay
+    return [
+        "RPDU 81/82/92",                 // Remote power distribution
+        "ATRU E5/E6",                    // Auto transformer rectifier
+        "APU Battery",                   // Secondary battery system
+        "GCU Panel P100",                // Generator control unit
+        "CMSC Unit",                     // Common motor start controller
+        "E3-E7 Rack",                    // Equipment rack positions
+        "Wire Bundle W5200",             // Aft routing harness
+        "Vent Outlet",                   // Bay ventilation
+        "Fire Detector",                 // Smoke/heat sensor
+        "Service Panel"                  // Ground power connection
+    ]
+    
+case "Flight Deck", "Cockpit":
+    // Advanced cockpit panel system
+    return [
+        "P1-P3 Display Panel",           // Primary flight displays
+        "P5 Overhead Panel",             // Systems control
+        "P9 Forward Aisle Stand",        // FMS and radio control
+        "P55 Glareshield MCP",           // Mode control panel
+        "EFB Mount",                     // Electronic flight bag
+        "ISFD Panel P2",                 // Integrated standby display
+        "MFK Keypad",                    // Multi-function keypad
+        "Cursor Control Device",         // CCD trackball
+        "P7 Aft Aisle Stand",            // Circuit breakers
+        "Window Heat Controller"         // Ice protection panel
+    ]
+    
+case "Forward Cargo":
+    // Forward cargo compartment (Stations 275-390)
+    return [
+        "Powered Door Actuator",         // Hydraulic door mechanism
+        "Manual Release Handle",         // Emergency operation
+        "Smoke Detector",                // Fire detection system
+        "Halon Manifold",                // Fire suppression
+        "Ball Transfer Unit",            // Container loading system
+        "Sidewall Panel",                // Composite structure
+        "Divider Net Attachment",        // Bulk cargo restraint
+        "Floor Track",                   // Container guides
+        "Insulation Blanket",            // Thermal/acoustic
+        "Ceiling Light"                  // LED illumination
+    ]
+    
+case "Aft Cargo":
+    // Aft cargo compartment (Stations 1220-1350)
+    return [
+        "Bulk Door Latch",               // Bulk compartment access
+        "Pressure Bulkhead Interface",   // Station 1016 junction
+        "Cargo Heat Manifold",           // Temperature control
+        "Environmental Duct",            // ECS distribution
+        "9G Barrier Net",                // Crash safety system
+        "Sidewall Attachment",           // Panel mounting point
+        "Door Warning Sensor",           // Lock indication
+        "Floor Panel Joint",             // Structural interface
+        "Drain Valve",                   // Water management
+        "Access Panel"                   // Service entry point
+    ]
+    
+case "Vertical Stabilizer", "Vertical Tail":
+    // Composite vertical stabilizer structure
+    return [
+        "Box Beam Assembly",             // Primary structure
+        "Rudder Hinge Bracket",          // Control surface attachment
+        "Trim Tab Actuator",             // Flight control adjustment
+        "Lightning Strike Point",        // Designated attachment
+        "Static Discharge Wick",         // Electrical protection
+        "Leading Edge",                  // Aerodynamic surface
+        "Trailing Edge",                 // Control surface interface
+        "Access Panel",                  // Internal inspection port
+        "Bonding Jumper",                // Electrical continuity
+        "VOR Antenna Mount"              // Navigation equipment
+    ]
+    
+case "Horizontal Stabilizer":
+    // Composite horizontal stabilizer
+    return [
+        "Torque Box",                    // Main structural assembly
+        "Elevator Hinge Fitting",        // Control surface mount
+        "Trunnion Bearing",              // Fuselage attachment
+        "Stabilizer Jack Screw",         // Trim adjustment mechanism
+        "Balance Weight",                // Control surface balance
+        "Anti-Ice Duct",                 // Leading edge protection
+        "Composite Bond Line",           // Critical inspection area
+        "Access Door",                   // Maintenance entry
+        "Position Sensor",               // Trim indication
+        "Actuator Mount"                 // Drive mechanism attachment
+    ]
+    
+case "Forward Fuselage", "Section 41":
+    // Stations 178-360
+    return [
+        "Radome Attachment Ring",        // Nose cone interface
+        "Forward Pressure Bulkhead",     // Pressure vessel boundary
+        "Nose Gear Wheel Well",          // NLG bay structure
+        "Window Belt",                   // Cockpit window frames
+        "Door 1 Frame",                  // Entry door structure
+        "Floor Beam",                    // Structural support
+        "Crown Panel",                   // Upper fuselage skin
+        "Keel Beam",                     // Lower centerline structure
+        "Frame Station 275",             // Specific frame location
+        "Wire Raceway"                   // Electrical routing
+    ]
+    
+case "Center Fuselage", "Section 44":
+    // Stations 540-727 (Wing box area)
+    return [
+        "Wing Box Interface",            // Wing attachment structure
+        "MLG Attachment Frame",          // Main gear mounting
+        "Center Fuel Tank",              // Fuel system component
+        "Door 2/3 Frame",                // Passenger door structure
+        "Floor Grid",                    // Cabin floor structure
+        "Sidewall Frame",                // Fuselage structure
+        "Belly Fairing",                 // Aerodynamic panel
+        "Keel Beam Junction",            // Primary structure
+        "Frame Station 663",             // Specific frame location
+        "System Tunnel"                  // Service routing area
+    ]
+    
+case "Aft Fuselage", "Section 47":
+    // Stations 888-1016
+    return [
+        "Aft Pressure Bulkhead",         // Rear pressure boundary
+        "APU Firewall",                  // Fire barrier
+        "Door 4 Frame",                  // Aft door structure
+        "Tail Cone Interface",           // Section 48 junction
+        "Horizontal Stab Attachment",    // Empennage mount
+        "Frame Station 1016",            // Critical frame location
+        "Crown Splice",                  // Upper skin joint
+        "Belly Panel",                   // Lower fuselage skin
+        "Longeron",                      // Longitudinal stiffener
+        "System Penetration"             // Service pass-through
+    ]
+    
+default:
+    // Generic inspection points for undefined zones
+    return [
+        "Composite Bond Line",           // CFRP joint inspection
+        "Metal-Composite Interface",     // Transition joint
+        "Frame Station",                 // Structural reference
+        "Access Panel",                  // Service entry point
+        "Drainage Point",                // Moisture management
+        "Grounding Point",               // Electrical bonding
+        "Sensor Location",               // System monitoring
+        "Attachment Bracket",            // Component mounting
+        "Service Port",                  // Maintenance access
+        "Inspection Window"              // Visual check point
+    ]
+}
+    }
+}
