@@ -6,49 +6,8 @@ import Foundation
 
 // MARK: - Supporting Types
 
-/// Coordinate system protocols and implementations
-protocol CoordinateSystem: Sendable {
-    var systemName: String { get }
-    var xLabel: String { get } // "X" or "STA"
-    var yLabel: String { get } // "Y" or "WL"
-    var zLabel: String { get } // "Z" or "BL"
-}
-
-/// Coordinate labels protocol
-protocol CoordinateLabels {
-    var xLabel: String { get }
-    var yLabel: String { get }
-    var zLabel: String { get }
-}
-
-/// Velocity coordinate system (X:Y:Z)
-struct VelocitySystem: CoordinateSystem {
-    let systemName = "Velocity"
-    let xLabel = "X"
-    let yLabel = "Y"
-    let zLabel = "Z"
-}
-
-struct VelocityCoordinateLabels: CoordinateLabels {
-    let xLabel = "X"
-    let yLabel = "Y"
-    let zLabel = "Z"
-}
-
-/// CMES coordinate system (STA:WL:BL)
-struct CMESSystem: CoordinateSystem {
-    let systemName = "CMES"
-    let xLabel = "STA"
-    let yLabel = "WL"
-    let zLabel = "BL"
-}
-
-struct CMESCoordinateLabels: CoordinateLabels {
-    let xLabel = "STA"
-    let yLabel = "WL"
-    let zLabel = "BL"
-}
-
+// Note: CoordinateSystem protocol and implementations moved to CoordinateSystemManager.swift
+// for better organization and dependency management
 
 
 /// Write-up status enum
