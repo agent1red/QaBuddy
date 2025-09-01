@@ -191,35 +191,7 @@ struct CMESCoordinateLabels: CoordinateLabels {
     let zLabel = "BL"
 }
 
-/// Field visibility configuration
-enum FieldVisibility: String, Codable, Sendable {
-    case visible
-    case hidden
-    case required
-}
 
-/// Template field configuration struct
-struct TemplateFieldConfiguration: Codable, Sendable {
-    let fieldName: String
-    var visibility: FieldVisibility
-    var defaultValue: String?
-    var prefix: String?
-    var suffix: String?
-    var validation: String? // Regex pattern
-
-    init(fieldName: String,
-         visibility: FieldVisibility = .visible,
-         defaultValue: String? = nil,
-         prefix: String? = nil,
-         suffix: String? = nil) {
-        self.fieldName = fieldName
-        self.visibility = visibility
-        self.defaultValue = defaultValue
-        self.prefix = prefix
-        self.suffix = suffix
-        self.validation = nil
-    }
-}
 
 /// Write-up status enum
 enum WriteupStatus: String, Codable {

@@ -4,41 +4,15 @@
 
 import Foundation
 
+// Import types from TemplateTypes.swift to ensure they're available in this module
+
+
+
 /// Data structure for template definitions (used before Core Data creation)
 struct InspectionTemplateData {
     let name: String
     let templateType: String
     let fieldConfigurations: [TemplateFieldConfiguration]
-}
-
-/// Field visibility configuration
-enum FieldVisibility: String, Codable, Sendable {
-    case visible
-    case hidden
-    case required
-}
-
-/// Template field configuration struct
-struct TemplateFieldConfiguration: Codable, Sendable {
-    let fieldName: String
-    var visibility: FieldVisibility
-    var defaultValue: String?
-    var prefix: String?
-    var suffix: String?
-    var validation: String? // Regex pattern
-
-    init(fieldName: String,
-         visibility: FieldVisibility = .visible,
-         defaultValue: String? = nil,
-         prefix: String? = nil,
-         suffix: String? = nil) {
-        self.fieldName = fieldName
-        self.visibility = visibility
-        self.defaultValue = defaultValue
-        self.prefix = prefix
-        self.suffix = suffix
-        self.validation = nil
-    }
 }
 
 /// Built-in template definitions with their field configurations
