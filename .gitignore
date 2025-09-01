@@ -1,634 +1,98 @@
-# QA Buddy iOS App
-
-## Overview
-Phase 2 implements iOS native Quick Look with Markup as the primary annotation solution for QA Buddy, specifically for iOS 17 and later. This integrates with the existing Core Data model from Phase 1 that includes Photo and Session entities.
-
-## Existing Core Data Model Integration
-The app uses the following Core Data entities:
-- **Photo**: Contains imageFilename, sequenceNumber, sessionID, notes, location data
-- **Session**: Contains inspection metadata, aircraft info, inspector details
-
-## Primary Implementation: Quick Look with Markup (iOS 17+)
-
-### Key Features Available in iOS 17+:
-- Enhanced markup tools with improved performance
-- Better memory management for large images
-- Improved gesture recognition for Apple Pencil
-- Native support for HEIF image format
-- Enhanced undo/redo capabilities
-
----
-
-## Phase 2 Development Tasks
-
-### Task 1: Core Quick Look Implementation with Core Data Integration
-
-**When implementing this task, you must:**
-1. Use Brave search tool to find the latest iOS 17+ Swift code references for QLPreviewController
-2. Use context7 tool to get current implementation patterns for Quick Look in iOS 17
-3. Search for the latest delegate methods and iOS 17 specific features
-
-**Research Requirements:**
-- Search for "QLPreviewController iOS 17 Swift implementation 2024"
-- Find latest "QLPreviewControllerDelegate editingModeFor iOS 17"
-- Look up "Quick Look markup annotation save delegate methods iOS 17"
-- Research "Swift async await Quick Look iOS 17 file operations"
-- Find "iOS 17 Quick Look new features improvements"
-
-**Implementation Requirements:**
-- Create Quick Look integration that works with existing Photo entity
-- Implement QLPreviewController with editing mode enabled for iOS 17+
-- Setup QLPreviewControllerDataSource and Delegate using latest patterns
-- Handle previewController:didUpdateContentsOf: for saving annotations
-- Create extensions for Photo entity to support annotations
-- Implement temporary file management optimized for iOS 17
-- Store both original and annotated versions using filesystem
-- Add iOS 17 specific optimizations and features
-
-**Technical Stack:**
-- Swift 5.9+ / SwiftUI for iOS 17+
-- QuickLook framework with latest iOS 17 APIs
-- Integration with existing Core Data model (Photo, Session entities)
-- Async/await for file operations
-- Non-destructive editing (preserve originals)
-
-**Code Implementation Template:**
-
-```swift
-import SwiftUI
-import QuickLook
-import UIKit
-import CoreData
-
-// MARK: - Photo Extension for Annotation Support
-extension Photo {
-    // Add computed properties for annotation support
-    var annotatedImageFilename: String? {
-        get {
-            // Store annotated version with "_annotated" suffix
-            guard let original = imageFilename else { return nil }
-            let name = (original as NSString).deletingPathExtension
-            let ext = (original as NSString).pathExtension
-            return "\(name)_annotated.\(ext)"
-        }
-    }
-    
-    var hasAnnotations: Bool {
-        guard let filename = annotatedImageFilename else { return false }
-        let url = FileManager.documentsDirectory.appendingPathComponent(filename)
-        return FileManager.default.fileExists(atPath: url.path)
-    }
-    
-    func loadOriginalImage() -> UIImage? {
-        guard let filename = imageFilename else { return nil }
-        let url = FileManager.documentsDirectory.appendingPathComponent(filename)
-        return UIImage(contentsOfFile: url.path)
-    }
-    
-    func loadAnnotatedImage() -> UIImage? {
-        guard let filename = annotatedImageFilename else { return nil }
-        let url = FileManager.documentsDirectory.appendingPathComponent(filename)
-        return UIImage(contentsOfFile: url.path)
-    }
-    
-    func saveAnnotatedImage(_ image: UIImage) throws {
-        guard let filename = annotatedImageFilename else { return }
-        let url = FileManager.documentsDirectory.appendingPathComponent(filename)
-        
-        guard let data = image.jpegData(compressionQuality: 0.9) else {
-            throw AnnotationError.imageConversionFailed
-        }
-        
-        try data.write(to: url)
-        
-        // Update notes to indicate annotation
-        if notes == nil || notes?.isEmpty == true {
-            notes = "Annotated on \(Date().formatted())"
-        } else {
-            notes = (notes ?? "") + "\n[Annotated: \(Date().formatted())]"
-        }
-        
-        // Save Core Data context
-        try managedObjectContext?.save()
-    }
-}
-
-// MARK: - FileManager Extension
-extension FileManager {
-    static var documentsDirectory: URL {
-        FileManager.default.urls(for: .documentDirectory, 
-                                in: .userDomainMask).first!
-    }
-}
-
-// MARK: - Annotation Error Types
-enum AnnotationError: LocalizedError {
-    case imageConversionFailed
-    case saveFailure
-    case tempFileCreationFailed
-    
-    var errorDescription: String? {
-        switch self {
-        case .imageConversionFailed:
-            return "Failed to convert image for annotation"
-        case .saveFailure:
-            return "Failed to save annotated image"
-        case .tempFileCreationFailed:
-            return "Failed to create temporary file for annotation"
-        }
-    }
-}
-
-// MARK: - Quick Look Coordinator for iOS 17+
-@MainActor
-class QuickLookCoordinator: NSObject, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
-    let photo: Photo
-    var tempImageURL: URL?
-    var onAnnotationComplete: ((UIImage) -> Void)?
-    var onDismiss: (() -> Void)?
-    
-    init(photo: Photo) {
-        self.photo = photo
-        super.init()
-    }
-    
-    deinit {
-        // Clean up temp file
-        if let url = tempImageURL {
-            try? FileManager.default.removeItem(at: url)
-        }
-    }
-    
-    // MARK: - QLPreviewControllerDataSource
-    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
-        return tempImageURL != nil ? 1 : 0
-    }
-    
-    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
-        return tempImageURL! as QLPreviewItem
-    }
-    
-    // MARK: - QLPreviewControllerDelegate
-    func previewController(_ controller: QLPreviewController, editingModeFor previewItem: QLPreviewItem) -> QLPreviewItemEditingMode {
-        // Enable markup tools
-        return .updateContents
-    }
-    
-    func previewController(_ controller: QLPreviewController, didUpdateContentsOf previewItem: QLPreviewItem) {
-        // Handle annotated image
-        guard let url = previewItem.previewItemURL else { return }
-        
-        Task { @MainActor in
-            do {
-                let imageData = try Data(contentsOf: url)
-                if let annotatedImage = UIImage(data: imageData) {
-                    try photo.saveAnnotatedImage(annotatedImage)
-                    onAnnotationComplete?(annotatedImage)
-                }
-            } catch {
-                print("Error saving annotation: \(error)")
-            }
-        }
-    }
-    
-    func previewControllerDidDismiss(_ controller: QLPreviewController) {
-        onDismiss?()
-    }
-}
-
-// MARK: - Quick Look View for SwiftUI (iOS 17+)
-struct QuickLookAnnotationView: UIViewControllerRepresentable {
-    let photo: Photo
-    @Binding var isPresented: Bool
-    let onAnnotationComplete: (UIImage) -> Void
-    
-    func makeCoordinator() -> QuickLookCoordinator {
-        let coordinator = QuickLookCoordinator(photo: photo)
-        coordinator.onAnnotationComplete = onAnnotationComplete
-        coordinator.onDismiss = {
-            isPresented = false
-        }
-        return coordinator
-    }
-    
-    func makeUIViewController(context: Context) -> UIViewController {
-        UIViewController()
-    }
-    
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        if isPresented && uiViewController.presentedViewController == nil {
-            presentQuickLook(from: uiViewController, context: context)
-        } else if !isPresented && uiViewController.presentedViewController != nil {
-            uiViewController.dismiss(animated: true)
-        }
-    }
-    
-    private func presentQuickLook(from viewController: UIViewController, context: Context) {
-        // Load the image to annotate (prefer original for new annotations)
-        guard let image = photo.loadAnnotatedImage() ?? photo.loadOriginalImage() else {
-            isPresented = false
-            return
-        }
-        
-        // Create temp file for Quick Look
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(photo.id?.uuidString ?? UUID().uuidString)_temp.jpg")
-        
-        guard let imageData = image.jpegData(compressionQuality: 1.0) else {
-            isPresented = false
-            return
-        }
-        
-        do {
-            try imageData.write(to: tempURL)
-            context.coordinator.tempImageURL = tempURL
-            
-            let qlController = QLPreviewController()
-            qlController.dataSource = context.coordinator
-            qlController.delegate = context.coordinator
-            
-            // iOS 17+ specific configurations
-            if #available(iOS 17.0, *) {
-                qlController.navigationItem.rightBarButtonItems = []
-            }
-            
-            viewController.present(qlController, animated: true)
-        } catch {
-            print("Failed to create temp file: \(error)")
-            isPresented = false
-        }
-    }
-}
-```
-
-**Testing Requirements:**
-- Test on iOS 17.0, 17.5, and iOS 18 beta if available
-- Verify markup tools appear and function correctly
-- Confirm annotations save to Core Data properly
-- Validate memory usage with images over 10MB
-- Test with HEIF format images
-
----
-
-### Task 2: Photo Detail View with Annotation
-
-**When implementing this task, you must:**
-1. Use Brave search tool to find iOS 17+ SwiftUI best practices for photo viewers
-2. Use context7 tool to research latest patterns for image display and manipulation
-3. Search for current iOS 17 gesture handling and animation patterns
-
-**Research Requirements:**
-- Search for "SwiftUI iOS 17 photo viewer implementation 2024"
-- Find "iOS 17 image manipulation gestures SwiftUI"
-- Look up "SwiftUI navigation patterns iOS 17 photo apps"
-- Research "iOS 17 ShareLink UIActivityViewController Swift"
-- Find "SwiftUI performance optimization large images iOS 17"
-
-**Implementation Requirements:**
-- Create a photo detail view that integrates with Quick Look
-- Display both original and annotated images with toggle
-- Implement gesture controls for viewing annotations
-- Add share functionality using iOS 17 ShareLink when appropriate
-- Include photo metadata display from Core Data
-- Implement delete annotations functionality
-- Add visual indicators for annotation status
-
-**Technical Stack:**
-- SwiftUI with iOS 17+ features
-- Observation framework if applicable
-- Modern navigation APIs
-- ShareLink for sharing when appropriate
-
-**Code Implementation Template:**
-
-```swift
-import SwiftUI
-import CoreData
-
-// MARK: - Photo Detail View with Annotation Support
-struct PhotoDetailView: View {
-    @ObservedObject var photo: Photo
-    @Environment(\.managedObjectContext) private var viewContext
-    @State private var showingQuickLook = false
-    @State private var currentImage: UIImage?
-    @State private var showingOriginal = false
-    @State private var showingDeleteConfirmation = false
-    
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                // Photo Display
-                photoSection
-                
-                // Annotation Controls
-                annotationControls
-                
-                // Photo Information
-                photoInfoSection
-                
-                // Notes Section
-                notesSection
-            }
-            .padding()
-        }
-        .navigationTitle("Photo #\(photo.sequenceNumber)")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            toolbarContent
-        }
-        .onAppear {
-            loadCurrentImage()
-        }
-        .overlay(
-            quickLookOverlay
-        )
-        .alert("Delete Annotations", isPresented: $showingDeleteConfirmation) {
-            Button("Delete", role: .destructive) {
-                deleteAnnotations()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will permanently delete all annotations for this photo.")
-        }
-    }
-    
-    // Implementation continues...
-}
-```
-
----
-
-### Task 3: Session Photos Grid with Batch Annotation
-
-**When implementing this task, you must:**
-1. Use Brave search tool to find iOS 17+ LazyVGrid optimization techniques
-2. Use context7 tool to research batch processing patterns in Swift
-3. Search for latest collection view performance tips for iOS 17
-
-**Research Requirements:**
-- Search for "SwiftUI LazyVGrid performance iOS 17 large datasets"
-- Find "iOS 17 batch image processing Swift async"
-- Look up "Quick Look multiple items iOS 17 implementation"
-- Research "SwiftUI selection mode grid view iOS 17"
-- Find "iOS 17 memory management photo galleries Swift"
-
-**Implementation Requirements:**
-- Display session photos in an optimized grid layout
-- Implement selection mode for batch operations
-- Create batch annotation manager for multiple photos
-- Handle Quick Look with multiple preview items
-- Optimize thumbnail loading and caching
-- Implement progress indicators for batch operations
-- Add selection visual feedback
-
-**Technical Stack:**
-- LazyVGrid with adaptive columns
-- Async image loading
-- Batch processing with progress tracking
-- Memory-efficient thumbnail generation
-
-**Code Implementation Template:**
-
-```swift
-import SwiftUI
-import QuickLook
-import CoreData
-
-// MARK: - Session Photos View with Batch Annotation
-struct SessionPhotosView: View {
-    @ObservedObject var session: Session
-    @Environment(\.managedObjectContext) private var viewContext
-    @State private var selectedPhotos: Set<Photo> = []
-    @State private var isSelectionMode = false
-    @State private var showingBatchAnnotation = false
-    @State private var batchAnnotationManager: BatchAnnotationManager?
-    
-    private var sortedPhotos: [Photo] {
-        let photosArray = session.photos?.allObjects as? [Photo] ?? []
-        return photosArray.sorted { $0.sequenceNumber < $1.sequenceNumber }
-    }
-    
-    // Implementation continues...
-}
-```
-
----
-
-### Task 4: Temporary File Management System
-
-**When implementing this task, you must:**
-1. Use Brave search tool to find iOS 17+ file management best practices
-2. Use context7 tool to research temporary file handling patterns
-3. Search for memory-efficient file operations in iOS 17
-
-**Research Requirements:**
-- Search for "iOS 17 temporary file management Swift best practices"
-- Find "FileManager async operations iOS 17"
-- Look up "iOS 17 app sandbox file storage patterns"
-- Research "Swift concurrency file operations iOS 17"
-- Find "iOS 17 automatic file cleanup strategies"
-
-**Implementation Requirements:**
-- Create robust temporary file management system
-- Implement automatic cleanup of old temporary files
-- Handle concurrent file operations safely
-- Add file size monitoring and limits
-- Implement proper error handling for file operations
-- Create background cleanup tasks
-- Add logging for debugging file operations
-
-**Technical Stack:**
-- FileManager with async/await
-- Background tasks for cleanup
-- Structured concurrency for file operations
-
----
-
-### Task 5: Performance Optimization and Memory Management
-
-**When implementing this task, you must:**
-1. Use Brave search tool to find iOS 17+ performance optimization techniques
-2. Use context7 tool to research memory management for photo apps
-3. Search for latest image caching strategies in iOS 17
-
-**Research Requirements:**
-- Search for "iOS 17 image memory optimization Swift"
-- Find "SwiftUI performance profiling tools iOS 17"
-- Look up "iOS 17 image caching strategies large photos"
-- Research "Swift async image loading optimization iOS 17"
-- Find "iOS 17 Instruments memory debugging photo apps"
-
-**Implementation Requirements:**
-- Implement efficient image caching system
-- Optimize memory usage for large images
-- Add thumbnail generation and caching
-- Implement lazy loading for gallery views
-- Create memory pressure handling
-- Add performance monitoring points
-- Optimize Core Data fetches
-
-**Technical Stack:**
-- NSCache for image caching
-- Async thumbnail generation
-- Memory warning handlers
-- Instruments profiling integration points
-
----
-
-### Task 6: Error Handling and User Feedback
-
-**When implementing this task, you must:**
-1. Use Brave search tool to find iOS 17+ error handling patterns
-2. Use context7 tool to research user feedback best practices
-3. Search for accessibility features in iOS 17
-
-**Research Requirements:**
-- Search for "iOS 17 error handling best practices Swift"
-- Find "SwiftUI alert and feedback patterns iOS 17"
-- Look up "iOS 17 accessibility photo annotation"
-- Research "Swift Result type error handling iOS 17"
-- Find "iOS 17 haptic feedback implementation"
-
-**Implementation Requirements:**
-- Implement comprehensive error handling
-- Add user-friendly error messages
-- Create progress indicators for long operations
-- Add success/failure feedback
-- Implement accessibility features
-- Add haptic feedback for actions
-- Create error recovery mechanisms
-
-**Technical Stack:**
-- Swift Result type
-- SwiftUI alerts and toasts
-- Haptic feedback API
-- VoiceOver support
-
----
-
-### Task 7: Testing Suite Implementation
-
-**When implementing this task, you must:**
-1. Use Brave search tool to find iOS 17+ testing frameworks
-2. Use context7 tool to research UI testing for photo apps
-3. Search for performance testing strategies
-
-**Research Requirements:**
-- Search for "iOS 17 XCTest UI testing photo apps"
-- Find "Swift Testing framework iOS 17 examples"
-- Look up "Performance testing images iOS 17"
-- Research "Core Data testing strategies iOS 17"
-- Find "Quick Look testing automation iOS 17"
-
-**Implementation Requirements:**
-- Create unit tests for annotation logic
-- Implement UI tests for Quick Look workflow
-- Add performance tests for image operations
-- Create Core Data integration tests
-- Implement memory leak tests
-- Add stress tests for batch operations
-- Create accessibility tests
-
-**Testing Scenarios:**
-```swift
-/*
-TEST SCENARIOS FOR iOS 17+ IMPLEMENTATION
-
-1. Basic Annotation Flow Test
-   - Open photo from session
-   - Invoke Quick Look markup
-   - Add annotations
-   - Save and verify persistence
-   - Reopen and verify annotations exist
-
-2. Batch Annotation Test
-   - Select multiple photos
-   - Annotate subset of photos
-   - Verify correct photos updated
-   - Check memory usage stays within limits
-
-3. Performance Test
-   - Load session with 100+ photos
-   - Measure grid scroll performance
-   - Test annotation of 10MB+ images
-   - Verify temp file cleanup
-
-4. Error Recovery Test
-   - Simulate disk full scenario
-   - Test network interruption during save
-   - Verify graceful degradation
-   - Test error message display
-
-5. Accessibility Test
-   - Verify VoiceOver navigation
-   - Test Dynamic Type support
-   - Verify contrast ratios
-   - Test gesture alternatives
-*/
-```
-
----
-
-### Task 8: Documentation and Code Comments
-
-**When implementing this task, you must:**
-1. Use Brave search tool to find iOS 17+ documentation standards
-2. Use context7 tool to research Swift documentation best practices
-3. Search for DocC documentation patterns
-
-**Research Requirements:**
-- Search for "Swift DocC documentation iOS 17"
-- Find "iOS app documentation best practices 2024"
-- Look up "Swift code commenting standards"
-- Research "README templates iOS projects"
-- Find "API documentation tools Swift"
-
-**Implementation Requirements:**
-- Add comprehensive inline code comments
-- Create DocC documentation for public APIs
-- Write README with setup instructions
-- Document Core Data model changes
-- Create user guide for annotation features
-- Add troubleshooting guide
-- Document performance considerations
-
----
-
-## Success Metrics
-
-After completing all tasks, the implementation should achieve:
-
-1. **Performance Metrics:**
-   - Annotation loading time < 2 seconds
-   - Memory usage < 150MB for typical session
-   - Support for 100+ photos per session
-   - Smooth 60fps scrolling in grid view
-
-2. **Reliability Metrics:**
-   - Zero data loss for annotations
-   - Proper cleanup of all temporary files
-   - Graceful handling of all error conditions
-   - Core Data integrity maintained
-
-3. **User Experience Metrics:**
-   - Annotation completion time < 30 seconds per photo
-   - Batch annotation of 10 photos < 5 minutes
-   - Intuitive navigation between original/annotated
-   - Clear visual feedback for all operations
-
----
-
-## Final Integration Checklist
-
-Before marking Phase 2 complete:
-
-- [ ] All tasks implemented and tested
-- [ ] Integration with Phase 1 verified
-- [ ] Performance benchmarks met
-- [ ] Documentation complete
-- [ ] Code review completed
-- [ ] Accessibility features verified
-- [ ] Memory leaks checked
-- [ ] Error handling comprehensive
-- [ ] User feedback mechanisms working
-- [ ] Ready for Phase 3 integration
+# Xcode
+.DS_Store
+*.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+*.xcscheme
+xcschememanagement.plist
+userinterface.xcuserstate
+*breakpoints_v2.xcbkptlist
+
+# Xcode specific
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+xcuserdata/*
+*.xcscmblueprint
+
+# Swift Package Manager
+.build/
+Packages/
+.package/
+.swiftpm/xcode/package.xcworkspace/
+.swiftpm/xcode/xcshareddata/
+
+# CocoaPods
+Pods/
+
+# Carthage
+Carthage/Build/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+
+# Code Coverage
+*.xccovreport
+*.xccovarchive
+
+# App Data
+*.moved-aside
+*.xcuserstate
+
+# Playground
+timeline.xctimeline
+playground.xcworkspace/
+
+# Asset catalog generated files
+*.xcassets
+
+# Provisioning profiles
+*.mobileprovision
+*.provisionprofile
+
+# Other
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.app
+*.pch
+*.swp
+*.lock
+*.xcsettings
+*.xcconfig
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Backup files
+*~
+*.bak
+
+# User-specific files
+*.user
+*.userprefs
+
+# Simulator devices
+*.simdevicetype
+*.simruntime
+taskListPhase3-1.md
+QaBuddy.xcodeproj/project_overview.md
+.gitignore
+.gitignore
+QaBuddy.xcodeproj/taskListPhase1.md
+QaBuddy.xcodeproj/taskListPhase2.md
