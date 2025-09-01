@@ -8,6 +8,7 @@
 import SwiftUI
 import CoreData
 import UIKit
+import QuickLook
 
 struct PhotoDetailView: View {
     let photos: [Photo]
@@ -18,8 +19,9 @@ struct PhotoDetailView: View {
 
     // State
     @State private var currentIndex: Int = 0
-    @State private var showingAnnotationView = false
+    @State private var showingQuickLook = false
     @State private var forceImageRefresh: Bool = false // Force refresh after annotation
+    @State private var quickLookCoordinator: QuickLookCoordinator?
 
     // Managers
     private let photoManager = PhotoManager()
@@ -60,8 +62,22 @@ struct PhotoDetailView: View {
                     // Annotation button for iOS 17+
                     if #available(iOS 17.0, *) {
                         Button(action: {
-                            Logger.info("Opening annotation view for photo #\(currentPhoto.sequenceNumber)")
-                            showingAnnotationView = true
+                            if let currentPhoto = photos.indices.contains(currentIndex) ? photos[currentIndex] : nil {
+                                Logger.info("Opening QuickView annotation for photo #\(currentPhoto.sequenceNumber)")
+                                quickLookCoordinator = QuickLookCoordinator(photo: currentPhoto)
+                                DispatchQueue.main.async {
+                                    quickLookCoordinator?.onAnnotationComplete = { image in
+                                        Logger.info("Annotation completed, refreshing UI")
+                                        forceImageRefresh.toggle()
+                                        showingQuickLook = false
+                                    }
+                                    quickLookCoordinator?.onDismiss = {
+                                        Logger.info("QuickView dismissed")
+                                        showingQuickLook = false
+                                    }
+                                    showingQuickLook = true
+                                }
+                            }
                         }) {
                             ZStack {
                                 Circle()
@@ -103,11 +119,16 @@ struct PhotoDetailView: View {
                 .indexViewStyle(.page(backgroundDisplayMode: .always))
             }
 
-            // Annotation overlay
-            if showingAnnotationView, #available(iOS 17.0, *) {
-                if let currentPhoto = photos.indices.contains(currentIndex) ? photos[currentIndex] : nil {
-                    Color.clear.overlay(
-                        PhotoDetailViewAnnotation(photo: currentPhoto)
+            // QuickLook overlay when annotation is active
+            if showingQuickLook, #available(iOS 17.0, *) {
+                if let coordinator = quickLookCoordinator, let currentPhoto = photos.indices.contains(currentIndex) ? photos[currentIndex] : nil {
+                    QuickLookAnnotationView(
+                        photo: currentPhoto,
+                        isPresented: $showingQuickLook,
+                        onAnnotationComplete: { image in
+                            Logger.info("QuickView annotation completed")
+                            forceImageRefresh.toggle()
+                        }
                     )
                     .ignoresSafeArea()
                 }
