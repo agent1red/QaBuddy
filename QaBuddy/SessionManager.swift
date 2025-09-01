@@ -10,19 +10,34 @@ import SwiftUI
 
 /// Aviation inspection types for professional documentation
 enum InspectionType: String, CaseIterable, Codable {
-    case preFlight = "Pre-Flight"
-    case postFlight = "Post-Flight"
-    case maintenance = "General Maintenance"
-    case otherInspection = "Other Inspection"
-    case cabin = "A Deck"
-    case lowerDeck = "B Deck"
-    case flightDeck = "Flight Deck"
-    case leftLandingGear = "Left MLG and WW"
-    case rightLandingGear = "Right MLG and WW"
-    case avionics = "Avionics"
-    case propulsion = "Engine"
+    // Aircraft Zones
+    case aDeck = "A Deck"                    // Passenger deck (top)
+    case bDeck = "B Deck"                    // Cargo deck (bottom)
     case leftWing = "Left Wing"
     case rightWing = "Right Wing"
+    case empennage = "Empennage"             // Tail section
+    case leftMLG = "Left MLG"                // Main Landing Gear
+    case rightMLG = "Right MLG"
+    case leftWheelWell = "Left Wheel Well"
+    case rightWheelWell = "Right Wheel Well"
+    case nlg = "NLG"                         // Nose Landing Gear
+    case forwardCargo = "Forward Cargo"
+    case aftCargo = "Aft Cargo"
+    case fortyEightSection = "48 Section"    // Aft pressure bulkhead area
+    case fwEEBay = "FW EE Bay"               // Forward Electronic Equipment
+    case aftEEBay = "Aft EE Bay"             // Aft Electronic Equipment
+    case leftACBay = "Left AC Bay"           // Air Conditioning
+    case rightACBay = "Right AC Bay"
+    case flightDeck = "Flight Deck"
+    case leftEngine = "Left Engine"
+    case rightEngine = "Right Engine"
+    case apu = "APU"                         // Auxiliary Power Unit
+
+    // Activity Types
+    case preFlight = "Pre-Flight"
+    case postFlight = "Post-Flight"
+    case generalMaintenance = "General Maintenance"
+    case aog = "AOG"                         // Aircraft On Ground
     case other = "Other"
 
     var displayName: String { self.rawValue }

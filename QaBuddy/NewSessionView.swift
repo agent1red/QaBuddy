@@ -109,7 +109,7 @@ struct NewSessionView: View {
 
                 Divider()
 
-                ForEach([InspectionType.other, InspectionType.otherInspection], id: \.self) { type in
+                ForEach([InspectionType.other], id: \.self) { type in
                     Text(type.displayName)
                         .tag(type)
                 }
@@ -203,17 +203,18 @@ extension InspectionType {
         switch self {
         case .preFlight: return "Morning Preflight"
         case .postFlight: return "Evening Postflight"
-        case .maintenance: return "Maintenance Inspection"
-        case .cabin: return "A Deck Inspection"
-        case .lowerDeck: return "B Deck Inspection"
+        case .generalMaintenance: return "Maintenance Inspection"
+        case .aDeck: return "A Deck Inspection"
+        case .bDeck: return "B Deck Inspection"
         case .flightDeck: return "Flight Deck Check"
-        case .leftLandingGear: return "Left MLG Inspection"
-        case .rightLandingGear: return "Right MLG Inspection"
-        case .avionics: return "Avionics Inspection"
-        case .propulsion: return "Engine Inspection"
+        case .leftMLG: return "Left MLG Inspection"
+        case .rightMLG: return "Right MLG Inspection"
+        case .fwEEBay: return "FW EE Bay Inspection"
+        case .leftEngine: return "Left Engine Inspection"
         case .leftWing: return "Left Wing Inspection"
         case .rightWing: return "Right Wing Inspection"
-        case .other, .otherInspection: return "General Inspection"
+        // Add cases for other zones as needed
+        default: return "General Inspection"
         }
     }
 
@@ -224,28 +225,52 @@ extension InspectionType {
             return "Pre-flight inspection typically conducted before each flight to ensure airworthiness and safety."
         case .postFlight:
             return "Post-flight inspection to check for flight damage, wear, and maintenance needs."
-        case .maintenance:
+        case .generalMaintenance:
             return "Scheduled or unscheduled maintenance activities requiring documentation."
-        case .cabin:
-            return "A Deck (cabin) inspection focusing on passenger area, emergency equipment, and safety features."
-        case .lowerDeck:
-            return "B Deck (lower deck/cargo area) inspection and maintenance activities."
+        case .aDeck:
+            return "A Deck (passenger deck) inspection focusing on cabin area, emergency equipment, and safety features."
+        case .bDeck:
+            return "B Deck (cargo deck) inspection and maintenance activities."
         case .flightDeck:
             return "Flight Deck (cockpit) inspection including instruments, controls, and pilot equipment."
-        case .leftLandingGear:
-            return "Left Main Landing Gear and Wheels inspection, crucial for aircraft safety and operation."
-        case .rightLandingGear:
-            return "Right Main Landing Gear and Wheels inspection, ensuring balanced landing gear performance."
-        case .avionics:
-            return "Avionics systems inspection including radios, navigation, and electrical components."
-        case .propulsion:
-            return "Engine inspection and maintenance, critical for aircraft propulsion systems."
+        case .leftMLG:
+            return "Left Main Landing Gear and Wheel Well inspection, crucial for aircraft safety and operation."
+        case .rightMLG:
+            return "Right Main Landing Gear and Wheel Well inspection, ensuring balanced landing gear performance."
         case .leftWing:
-            return "Left wing inspection including structure, fuel system, and flight control surfaces."
+            return "Left wing structure, fuel system, and flight control surfaces inspection."
         case .rightWing:
-            return "Right wing inspection ensuring structural integrity and flight control functionality."
-        case .other, .otherInspection:
+            return "Right wing structure, fuel system, and flight control surfaces inspection."
+        case .empennage:
+            return "Empennage (tail section) inspection including vertical and horizontal stabilizers."
+        case .fwEEBay:
+            return "Forward Electronic Equipment Bay inspection including avionics and communication systems."
+        case .aftEEBay:
+            return "Aft Electronic Equipment Bay inspection and maintenance."
+        case .leftACBay:
+            return "Left Air Conditioning Bay inspection and servicing."
+        case .rightACBay:
+            return "Right Air Conditioning Bay inspection and servicing."
+        case .leftEngine:
+            return "Left engine inspection including cowling, pylon, and associated systems."
+        case .rightEngine:
+            return "Right engine inspection including cowling, pylon, and associated systems."
+        case .apu:
+            return "Auxiliary Power Unit inspection and maintenance."
+        case .nlg:
+            return "Nose Landing Gear inspection and wheel well check."
+        case .forwardCargo:
+            return "Forward cargo compartment inspection."
+        case .aftCargo:
+            return "Aft cargo compartment inspection."
+        case .fortyEightSection:
+            return "48 Section (aft pressure bulkhead) inspection."
+        case .other:
             return "Custom or specialty inspection not covered by standard categories."
+        case .aog:
+            return "Aircraft on Ground maintenance or emergency inspection."
+        default:
+            return "Inspection type description not yet available."
         }
     }
 }
