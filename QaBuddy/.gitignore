@@ -1,7 +1,9 @@
 # Xcode
 .DS_Store
+*.DS_Store
 build/
 DerivedData/
+*.xcuserstate
 
 # Xcode specific
 *.pbxuser
@@ -13,6 +15,7 @@ DerivedData/
 *.perspectivev3
 !default.perspectivev3
 xcuserdata/
+xcuserdata/*
 *.xcscmblueprint
 
 # Swift Package Manager
