@@ -124,7 +124,8 @@ struct PhotoDetailView: View {
                         PhotoDetailItemView(
                             photo: photos[index],
                             isCurrentPhoto: index == currentIndex,
-                            refreshTrigger: forceImageRefresh
+                            refreshTrigger: forceImageRefresh,
+                            inspectionType: resolvedInspectionType(for: photos[index]) ?? "Inspection"
                         )
                         .id("\(photos[index].id ?? UUID())-\(forceImageRefresh)") // Dynamic ID for refresh
                         .tag(index)
@@ -213,6 +214,33 @@ struct PhotoDetailView: View {
         sessionNameCache[sessionID] = "Unknown Session"
         return "Unknown Session"
     }
+
+    private func resolvedInspectionType(for photo: Photo) -> String? {
+        guard let sessionID = photo.sessionID, !sessionID.isEmpty else { return nil }
+
+        // Resolve via Core Data
+        if let uuid = UUID(uuidString: sessionID) {
+            let context = PersistenceController.shared.container.viewContext
+
+            do {
+                let request = Session.fetchRequest()
+                request.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
+                request.fetchLimit = 1
+
+                if let session = try context.fetch(request).first {
+                    // Map InspectionType enum to display string
+                    if let inspectionTypeString = session.inspectionType,
+                       let inspectionType = InspectionType(rawValue: inspectionTypeString) {
+                        return inspectionType.displayName
+                    }
+                }
+            } catch {
+                print("❌ Error resolving inspection type for session \(sessionID): \(error)")
+            }
+        }
+
+        return "Inspection" // Default for photos without session or unknown type
+    }
 }
 
 // MARK: - Photo Detail Item View (Photo Detail Tab View)
@@ -221,6 +249,7 @@ struct PhotoDetailItemView: View {
     let photo: Photo
     let isCurrentPhoto: Bool
     let refreshTrigger: Bool // When this changes, force fresh image load
+    let inspectionType: String // Pre-computed inspection type display name
 
     @State private var imageToDisplay: UIImage? = nil
     @State private var isLoadingImage = true
@@ -347,7 +376,7 @@ struct PhotoDetailItemView: View {
 
                             HStack {
                                 Image(systemName: "square.stack.3d.up")
-                                Text("Session: Inspection")
+                                Text("Session: \(inspectionType)")
                             }
 
                             if photo.latitude != 0 || photo.longitude != 0 {
