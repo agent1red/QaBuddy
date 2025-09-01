@@ -24,5 +24,52 @@
         <attribute name="status" attributeType="String"/>
         <attribute name="totalPhotos" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <relationship name="photos" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="Photo" inverseName="session" inverseEntity="Photo"/>
+        <relationship name="puWriteups" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="PUWriteup" inverseName="session" inverseEntity="PUWriteup"/>
+    </entity>
+    <entity name="InspectionTemplate" representedClassName="InspectionTemplate" syncable="YES" codeGenerationType="class">
+        <attribute name="id" attributeType="UUID" usesScalarValueType="YES"/>
+        <attribute name="name" attributeType="String"/>
+        <attribute name="templateType" attributeType="String"/>
+        <attribute name="isBuiltIn" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="createdDate" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="lastModified" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="puWriteups" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="PUWriteup" inverseName="template" inverseEntity="PUWriteup"/>
+        <relationship name="fields" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="TemplateField" inverseName="template" inverseEntity="TemplateField"/>
+    </entity>
+    <entity name="PUWriteup" representedClassName="PUWriteup" syncable="YES" codeGenerationType="class">
+        <attribute name="id" attributeType="UUID" usesScalarValueType="YES"/>
+        <attribute name="coordinateSystem" attributeType="String"/>
+        <attribute name="itemId" attributeType="Integer 64" usesScalarValueType="YES"/>
+        <attribute name="itemDescription" optional="YES" attributeType="String"/>
+        <attribute name="irm" optional="YES" attributeType="String"/>
+        <attribute name="partNumber" optional="YES" attributeType="String"/>
+        <attribute name="location" attributeType="String"/>
+        <attribute name="xCoordinate" optional="YES" attributeType="String"/>
+        <attribute name="yCoordinate" optional="YES" attributeType="String"/>
+        <attribute name="zCoordinate" optional="YES" attributeType="String"/>
+        <attribute name="issue" attributeType="String"/>
+        <attribute name="shouldBe" attributeType="String"/>
+        <attribute name="photoIds" optional="YES" attributeType="String"/>
+        <attribute name="status" attributeType="String"/>
+        <attribute name="createdDate" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="session" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Session" inverseName="puWriteups" inverseEntity="Session"/>
+        <relationship name="template" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="InspectionTemplate" inverseName="puWriteups" inverseEntity="InspectionTemplate"/>
+    </entity>
+    <entity name="ZoneConfiguration" representedClassName="ZoneConfiguration" syncable="YES" codeGenerationType="class">
+        <attribute name="id" attributeType="UUID" usesScalarValueType="YES"/>
+        <attribute name="zones" optional="YES" attributeType="String"/>
+        <attribute name="activityTypes" optional="YES" attributeType="String"/>
+        <attribute name="isDefault" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="lastModified" attributeType="Date" usesScalarValueType="NO"/>
+    </entity>
+    <entity name="TemplateField" representedClassName="TemplateField" syncable="YES" codeGenerationType="class">
+        <attribute name="id" attributeType="UUID" usesScalarValueType="YES"/>
+        <attribute name="fieldName" attributeType="String"/>
+        <attribute name="visibility" attributeType="String"/>
+        <attribute name="defaultValue" optional="YES" attributeType="String"/>
+        <attribute name="prefix" optional="YES" attributeType="String"/>
+        <attribute name="suffix" optional="YES" attributeType="String"/>
+        <attribute name="validationPattern" optional="YES" attributeType="String"/>
+        <relationship name="template" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="InspectionTemplate" inverseName="fields" inverseEntity="InspectionTemplate"/>
     </entity>
 </model>
