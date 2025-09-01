@@ -136,7 +136,7 @@ struct PhotoDetailView: View {
 
             // QuickLook overlay when annotation is active
             if showingQuickLook, #available(iOS 17.0, *) {
-                if let coordinator = quickLookCoordinator, let currentPhoto = photos.indices.contains(currentIndex) ? photos[currentIndex] : nil {
+                if let _ = quickLookCoordinator, let currentPhoto = photos.indices.contains(currentIndex) ? photos[currentIndex] : nil {
                     QuickLookAnnotationView(
                         photo: currentPhoto,
                         isPresented: $showingQuickLook,
