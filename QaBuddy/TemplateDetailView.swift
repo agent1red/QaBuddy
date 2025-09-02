@@ -15,235 +15,234 @@ struct TemplateDetailView: View {
     @State private var showingDuplicateAlert = false
     @State private var duplicateName = ""
     @State private var stableFieldConfigurations: [TemplateFieldConfiguration] = []
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationView {
-            Form {
-                // Template Information Section
-                Section(header: Text("Template Information")) {
+        Form {
+            // Template Information Section
+            Section(header: Text("Template Information")) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(template.name ?? "Untitled Template")
+                                .font(.headline)
+
+                            if template.isBuiltIn {
+                                Image(systemName: "star.fill")
+                                    .foregroundColor(.yellow)
+                                    .font(.caption)
+                            } else {
+                                Image(systemName: "pencil.circle.fill")
+                                    .foregroundColor(.blue)
+                                    .font(.caption)
+                            }
+                        }
+
+                        HStack {
+                            Text(templateTypeBadge)
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(templateTypeColor.opacity(0.2))
+                                )
+                                .foregroundColor(templateTypeColor)
+
+                            Spacer()
+
+                            if let fieldCount = fieldCountText {
+                                Text(fieldCount)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        if let lastModified = template.lastModified {
+                            Text("Modified \(lastModified.formatted(.relative(presentation: .named)))")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+
+                        if let createdDate = template.createdDate {
+                            Text("Created \(createdDate.formatted(.dateTime.month().day().year()))")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+
+            // Field Configuration Section
+            Section(header: Text("Field Configuration")) {
+                if !stableFieldConfigurations.isEmpty {
+                    ForEach(Array(stableFieldConfigurations.enumerated()), id: \.element.fieldName) { (index, config) in
+                        FieldConfigurationRow(
+                            config: config,
+                            index: index + 1
+                        )
+                    }
+                    .animation(.none, value: stableFieldConfigurations) // Prevents rapid field movement animations
+                } else {
+                    Text("No field configurations found")
+                        .foregroundColor(.secondary)
+                        .italic()
+                }
+            }
+
+            // Session Integration Section
+            if sessionManager.hasActiveSession {
+                Section(header: Text("Session Integration")) {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(template.name ?? "Untitled Template")
-                                    .font(.headline)
-
-                                if template.isBuiltIn {
-                                    Image(systemName: "star.fill")
-                                        .foregroundColor(.yellow)
-                                        .font(.caption)
-                                } else {
-                                    Image(systemName: "pencil.circle.fill")
-                                        .foregroundColor(.blue)
-                                        .font(.caption)
-                                }
-                            }
-
-                            HStack {
-                                Text(templateTypeBadge)
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 2)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(templateTypeColor.opacity(0.2))
-                                    )
-                                    .foregroundColor(templateTypeColor)
-
-                                Spacer()
-
-                                if let fieldCount = fieldCountText {
-                                    Text(fieldCount)
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-
-                            if let lastModified = template.lastModified {
-                                Text("Modified \(lastModified.formatted(.relative(presentation: .named)))")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            if let createdDate = template.createdDate {
-                                Text("Created \(createdDate.formatted(.dateTime.month().day().year()))")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                }
-
-                // Field Configuration Section
-                Section(header: Text("Field Configuration")) {
-                    if !stableFieldConfigurations.isEmpty {
-                        ForEach(Array(stableFieldConfigurations.enumerated()), id: \.element.fieldName) { (index, config) in
-                            FieldConfigurationRow(
-                                config: config,
-                                index: index + 1
-                            )
-                        }
-                        .animation(.none, value: stableFieldConfigurations) // Prevents rapid field movement animations
-                    } else {
-                        Text("No field configurations found")
-                            .foregroundColor(.secondary)
-                            .italic()
-                    }
-                }
-
-                // Session Integration Section
-                if sessionManager.hasActiveSession {
-                    Section(header: Text("Session Integration")) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Active Session: \(sessionManager.currentSessionInfo)")
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-
-                                if sessionManager.isZoneBasedSession {
-                                    Text("Zone-based inspection detected")
-                                        .font(.caption)
-                                        .foregroundColor(.green)
-                                } else {
-                                    Text("Activity-based inspection")
-                                        .font(.caption)
-                                        .foregroundColor(.blue)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Action Buttons Section
-                Section(header: Text("Actions")) {
-                    // Use Template Button (always available)
-                    Button(action: useTemplate) {
-                        HStack {
-                            Image(systemName: "doc.text.magnifyingglass")
-                            Text("Use Template")
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!sessionManager.hasActiveSession)
-
-                    if !sessionManager.hasActiveSession {
-                        Text("Start a session to use this template")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    // Custom Template Actions
-                    if !template.isBuiltIn {
-                        VStack(spacing: 12) {
-
-                            // Edit Button
-                            Button(action: {
-                                showingTemplateBuilder = true
-                            }) {
-                                HStack {
-                                    Image(systemName: "pencil.circle.fill")
-                                    Text("Edit Template")
-                                }
-                            }
-                            .foregroundColor(.blue)
-
-                            // Duplicate Button
-                            Button(action: showDuplicateDialog) {
-                                HStack {
-                                    Image(systemName: "doc.on.doc.fill")
-                                    Text("Duplicate Template")
-                                }
-                            }
-                            .foregroundColor(.green)
-
-                            // Delete Button
-                            Button(action: {
-                                showingDeleteConfirmation = true
-                            }) {
-                                HStack {
-                                    Image(systemName: "trash.fill")
-                                    Text("Delete Template")
-                                }
-                            }
-                            .foregroundColor(.red)
-                        }
-                    } else {
-                        // Built-in template notice
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("This is a built-in template")
+                            Text("Active Session: \(sessionManager.currentSessionInfo)")
                                 .font(.subheadline)
                                 .fontWeight(.medium)
-                                .foregroundColor(.secondary)
 
-                            Text("Built-in templates cannot be modified or deleted. You can duplicate this template to create a custom version.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
+                            if sessionManager.isZoneBasedSession {
+                                Text("Zone-based inspection detected")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                            } else {
+                                Text("Activity-based inspection")
+                                    .font(.caption)
+                                    .foregroundColor(.blue)
+                            }
                         }
-                        .padding(.vertical, 8)
+                    }
+                }
+            }
 
-                        // Quick duplicate option for built-in templates
+            // Action Buttons Section
+            Section(header: Text("Actions")) {
+                // Use Template Button (always available)
+                Button(action: useTemplate) {
+                    HStack {
+                        Image(systemName: "doc.text.magnifyingglass")
+                        Text("Use Template")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!sessionManager.hasActiveSession)
+
+                if !sessionManager.hasActiveSession {
+                    Text("Start a session to use this template")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                // Custom Template Actions
+                if !template.isBuiltIn {
+                    VStack(spacing: 12) {
+
+                        // Edit Button
+                        Button(action: {
+                            showingTemplateBuilder = true
+                        }) {
+                            HStack {
+                                Image(systemName: "pencil.circle.fill")
+                                Text("Edit Template")
+                            }
+                        }
+                        .foregroundColor(.blue)
+
+                        // Duplicate Button
                         Button(action: showDuplicateDialog) {
                             HStack {
-                                Image(systemName: "plus.circle.fill")
-                                Text("Create Custom Copy")
+                                Image(systemName: "doc.on.doc.fill")
+                                Text("Duplicate Template")
                             }
                         }
-                        .foregroundColor(.accentColor)
-                    }
-                }
-            }
-            .navigationTitle("Template Details")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if !template.isBuiltIn {
-                        Menu {
-                            Button(action: showDuplicateDialog) {
-                                Label("Duplicate Template", systemImage: "doc.on.doc")
-                            }
+                        .foregroundColor(.green)
 
-                            Button(role: .destructive, action: {
-                                showingDeleteConfirmation = true
-                            }) {
-                                Label("Delete Template", systemImage: "trash")
+                        // Delete Button
+                        Button(action: {
+                            showingDeleteConfirmation = true
+                        }) {
+                            HStack {
+                                Image(systemName: "trash.fill")
+                                Text("Delete Template")
                             }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
                         }
+                        .foregroundColor(.red)
+                    }
+                } else {
+                    // Built-in template notice
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("This is a built-in template")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+
+                        Text("Built-in templates cannot be modified or deleted. You can duplicate this template to create a custom version.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, 8)
+
+                    // Quick duplicate option for built-in templates
+                    Button(action: showDuplicateDialog) {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                            Text("Create Custom Copy")
+                        }
+                    }
+                    .foregroundColor(.accentColor)
+                }
+            }
+        }
+        .navigationTitle("Template Details")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !template.isBuiltIn {
+                    Menu {
+                        Button(action: showDuplicateDialog) {
+                            Label("Duplicate Template", systemImage: "doc.on.doc")
+                        }
+
+                        Button(role: .destructive, action: {
+                            showingDeleteConfirmation = true
+                        }) {
+                            Label("Delete Template", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
                 }
             }
-            .sheet(isPresented: $showingTemplateBuilder) {
-                TemplateBuilderView(template: template)
-            }
-            .alert("Duplicate Template", isPresented: $showingDuplicateAlert, actions: {
-                TextField("Template Name", text: $duplicateName)
-                Button("Cancel", role: .cancel) { }
-                Button("Duplicate") {
+        }
+        .sheet(isPresented: $showingTemplateBuilder) {
+            TemplateBuilderView(template: template)
+        }
+        .alert("Duplicate Template", isPresented: $showingDuplicateAlert, actions: {
+            TextField("Template Name", text: $duplicateName)
+            Button("Cancel", role: .cancel) { }
+            Button("Duplicate") {
                 Task {
                     await duplicateTemplate()
                 }
             }
-            }, message: {
-                Text("Enter a name for the duplicated template")
-            })
-            .alert("Delete Template", isPresented: $showingDeleteConfirmation, actions: {
-                Button("Cancel", role: .cancel) { }
-                Button("Delete", role: .destructive) {
-                    Task {
-                        await deleteTemplate()
-                    }
+        }, message: {
+            Text("Enter a name for the duplicated template")
+        })
+        .alert("Delete Template", isPresented: $showingDeleteConfirmation, actions: {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                Task {
+                    await deleteTemplate()
                 }
-            }, message: {
-                Text("Are you sure you want to delete '\(template.name ?? "this template")'? This action cannot be undone.")
-            })
-            .onAppear {
-                // Capture stable field configurations on view appear to prevent rapid recalculation
-                // This fixes the rapid animation issue researched from SwiftUI/Core Data ForEach problems
-                stableFieldConfigurations = template.decodedFieldConfigurations ?? []
             }
+        }, message: {
+            Text("Are you sure you want to delete '\(template.name ?? "this template")'? This action cannot be undone.")
+        })
+        .onAppear {
+            // Capture stable field configurations on view appear to prevent rapid recalculation
+            // This fixes the rapid animation issue researched from SwiftUI/Core Data ForEach problems
+            stableFieldConfigurations = template.decodedFieldConfigurations
         }
     }
 
@@ -318,6 +317,7 @@ struct TemplateDetailView: View {
     }
 }
 
+
 // MARK: - Supporting Views
 
 struct FieldConfigurationRow: View {
@@ -329,7 +329,7 @@ struct FieldConfigurationRow: View {
             HStack(alignment: .center, spacing: 8) {
                 // Field number and name
                 HStack(spacing: 6) {
-                    Text("#\(index + 1)")
+                    Text("#\(index)")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .frame(width: 24, alignment: .center)

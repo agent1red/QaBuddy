@@ -143,7 +143,7 @@ final class TemplateManager: ObservableObject {
     }
 
     /// Create a built-in template with field configurations
-    private func createBuiltInTemplate(name: String, templateType: String, fieldConfigs: [TemplateFieldConfiguration]) async -> Bool {
+    func createBuiltInTemplate(name: String, templateType: String, fieldConfigs: [TemplateFieldConfiguration]) async -> Bool {
         let newTemplate = InspectionTemplate(context: context)
         newTemplate.id = UUID()
         newTemplate.name = name

@@ -1,358 +1,595 @@
-//
 //  TemplateLibraryView.swift
 //  QA Buddy PU/NC Template System - Template Library View
-//  Phase 3.2 - Subtask 1.1: Create Template Library View
 
 import SwiftUI
 import CoreData
-
-// Local template struct for display purposes
-struct DisplayTemplate: Identifiable {
-    var id: UUID
-    var name: String?
-    var templateType: String?
-    var isBuiltIn: Bool
-    var fieldCount: Int
-    var lastModified: Date?
-
-    init(id: UUID = UUID(), name: String?, templateType: String?, isBuiltIn: Bool = false, fieldCount: Int = 0, lastModified: Date? = nil) {
-        self.id = id
-        self.name = name
-        self.templateType = templateType
-        self.isBuiltIn = isBuiltIn
-        self.fieldCount = fieldCount
-        self.lastModified = lastModified
-    }
-}
-
-// Simple template manager for demo
-class SimpleTemplateManager: ObservableObject {
-    @Published var templates: [DisplayTemplate] = []
-
-    static let shared = SimpleTemplateManager()
-
-    init() {
-        // Mock data for testing
-        templates = [
-            DisplayTemplate(id: UUID(), name: "FOD Cleanup", templateType: "PU", isBuiltIn: true, fieldCount: 9, lastModified: Date().addingTimeInterval(-86400)),
-            DisplayTemplate(id: UUID(), name: "Standard QA Write-up", templateType: "PU", isBuiltIn: true, fieldCount: 9, lastModified: Date().addingTimeInterval(-172800)),
-            DisplayTemplate(id: UUID(), name: "Equipment Defect", templateType: "NC", isBuiltIn: true, fieldCount: 3, lastModified: Date().addingTimeInterval(-259200))
-        ]
-    }
-
-    func loadTemplates() async {
-        // Already loaded in init
-    }
-
-    func addTemplate(name: String, templateType: String, fieldCount: Int) {
-        let newTemplate = DisplayTemplate(
-            name: name,
-            templateType: templateType,
-            isBuiltIn: false,
-            fieldCount: fieldCount,
-            lastModified: Date()
-        )
-        templates.append(newTemplate)
-        print("Template added to library: \(name) with \(fieldCount) fields")
-    }
-}
-
-struct SimpleTemplateBuilderView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var templateName = ""
-    @State private var templateType = "PU"
-    @State private var fieldConfigs: [String] = []
-    @State private var newFieldName = ""
-
-    var onSaveTemplate: ((String, String, Int) -> Void)?
-
-    var body: some View {
-        NavigationView {
-            Form {
-                Section(header: Text("Template Information")) {
-                    TextField("Template Name", text: $templateName)
-                    Picker("Type", selection: $templateType) {
-                        Text("Pickup (PU)").tag("PU")
-                        Text("Non-Conformance (NC)").tag("NC")
-                    }
-                }
-
-                Section(header: Text("Fields")) {
-                    ForEach(fieldConfigs, id: \.self) { field in
-                        Text("• " + field)
-                    }
-
-                    if fieldConfigs.isEmpty {
-                        Text("No fields added yet")
-                            .foregroundColor(.secondary)
-                    }
-
-                    HStack {
-                        TextField("Field name", text: $newFieldName)
-                        Button("Add") {
-                            if !newFieldName.isEmpty {
-                                fieldConfigs.append(newFieldName)
-                                newFieldName = ""
-                            }
-                        }
-                        .disabled(newFieldName.isEmpty)
-                    }
-                }
-
-                Section {
-                    Button("Save Template") {
-                        if !templateName.isEmpty {
-                            print("Template saved: \(templateName) with \(fieldConfigs.count) fields")
-                            onSaveTemplate?(templateName, templateType, fieldConfigs.count)
-                            dismiss()
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .disabled(templateName.isEmpty)
-                    .tint(.green)
-                }
-
-                Section {
-                    HStack {
-                        Spacer()
-                        Button("Reset") {
-                            templateName = ""
-                            templateType = "PU"
-                            fieldConfigs.removeAll()
-                            newFieldName = ""
-                        }
-                        .foregroundColor(.red)
-                        Spacer()
-                    }
-                }
-            }
-            .navigationTitle("New Template")
-        }
-    }
-}
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 struct TemplateLibraryView: View {
-    @StateObject private var templateManager = SimpleTemplateManager.shared
+    @StateObject private var templateManager = TemplateManager.shared
+    @StateObject private var sessionManager = SessionManager.shared
+    @State private var showingTemplateTypePicker = false
     @State private var showingTemplateBuilder = false
+    @State private var selectedTemplateType = ""
+    @State private var selectedTemplate: InspectionTemplate? = nil
     @State private var searchText = ""
-    @State private var showingTemplateDetails = false
-    @State private var selectedTemplate: DisplayTemplate?
-    @State private var navigationPath = NavigationPath()
 
-    // Template field preview helper
-    private func printTemplatePreview(name: String, type: String, fieldCount: Int) {
-        print("\n📋 TEMPLATE PREVIEW: \(name)")
-        print("🏷️ Type: \(type)")
-        print("📊 Fields: \(fieldCount)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("🔗 In full app, this would show:")
-        print("✅ Field validation rules")
-        print("✅ Default values")
-        print("✅ Prefix/suffix formatters")
-        print("✅ Required vs optional fields")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-    }
-
-    var filteredTemplates: [DisplayTemplate] {
+    // Filter the templates based on search text
+    private var filteredTemplates: [InspectionTemplate] {
         if searchText.isEmpty {
             return templateManager.templates
-        } else {
-            return templateManager.templates.filter { template in
-                (template.name?.localizedCaseInsensitiveContains(searchText) ?? false) ||
-                ((template.templateType ?? "").localizedCaseInsensitiveContains(searchText))
+        }
+        return templateManager.templates.filter {
+            ($0.name ?? "").localizedCaseInsensitiveContains(searchText) ||
+            ($0.templateType ?? "").localizedCaseInsensitiveContains(searchText) ||
+            $0.decodedFieldConfigurations.contains { config in
+                config.fieldName.localizedCaseInsensitiveContains(searchText) ||
+                (config.defaultValue ?? "").localizedCaseInsensitiveContains(searchText)
             }
+        }
+    }
+
+    // Group templates by type for display
+    private var groupedTemplates: [String: [InspectionTemplate]] {
+        Dictionary(grouping: filteredTemplates) { template in
+            template.templateType ?? "Unknown"
         }
     }
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: 0) {
-                // Header with Template Builder Navigation
-                HStack {
-                    Text("Template Library")
-                        .font(.title2)
-                        .fontWeight(.semibold)
+                // Header with Search and Create
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("Template Library")
+                            .font(.title2)
+                            .fontWeight(.semibold)
 
-                    Spacer()
-
-                    Button(action: {
-                        showingTemplateBuilder = true
-                    }) {
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundColor(.accentColor)
-                            .font(.title3)
-                    }
-                }
-                .padding()
-
-                // Search Bar
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.gray)
-                    ZStack(alignment: .leading) {
-                        if searchText.isEmpty {
-                            Text("Search templates...")
-                                .foregroundColor(.secondary)
-                        }
-                        TextField("", text: $searchText)
-                            .textFieldStyle(.plain)
-                    }
-                    if !searchText.isEmpty {
-                        Button(action: { searchText = "" }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.gray)
-                        }
-                    }
-                }
-                .padding(8)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(10)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-
-                // Template List
-                if templateManager.templates.isEmpty {
-                    // Empty State (fallback, though templates should load)
-                    VStack(spacing: 32) {
-                        Image(systemName: "clipboard")
-                            .font(.system(size: 80))
-                            .foregroundColor(.secondary)
-
-                        Text("Loading Templates...")
-                            .font(.title)
-                            .foregroundColor(.secondary)
+                        Spacer()
 
                         Button(action: {
-                            showingTemplateBuilder = true
+                            showingTemplateTypePicker = true
                         }) {
-                            Label("Create New Template", systemImage: "plus")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.accentColor)
-                                .cornerRadius(10)
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundColor(.accentColor)
+                                .font(.title3)
                         }
-                        .padding(.horizontal, 40)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    // Template List
-                    List(filteredTemplates, id: \.id) { template in
-                        TemplateRow(template: template)
-                            .contentShape(Rectangle())  // Make entire row tappable
-                            .onTapGesture {
-                                selectedTemplate = template
-                                showingTemplateDetails = true
+                    .padding(.horizontal)
+                    .padding(.top, 16)
+                    .padding(.bottom, 8)
+
+                    // Search Bar
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 12)
+
+                        TextField("Search templates...", text: $searchText)
+                            .padding(.vertical, 8)
+                            .padding(.leading, 8)
+
+                        if !searchText.isEmpty {
+                            Button(action: {
+                                searchText = ""
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
                             }
+                            .padding(.trailing, 12)
+                        }
                     }
-                    .listStyle(.plain)
+                    .background(Color.gray.opacity(0.2))
+                    .cornerRadius(10)
+                    .padding(.horizontal)
+                    .padding(.bottom, 16)
+                }
+                .background(Color.primary.opacity(0.05))
+
+                // Templates List
+                List {
+                    // Show empty state if no templates
+                    if templateManager.templates.isEmpty {
+                        emptyStateView
+                    } else {
+                        // Built-in Templates Section
+                        let builtInVersions = groupedTemplates.values.flatMap({ $0 }).filter({ $0.isBuiltIn }).sorted(by: { ($0.templateType ?? "") < ($1.templateType ?? "") })
+                        if !builtInVersions.isEmpty {
+                            Section(header: Text("Built-in Templates")) {
+                                ForEach(builtInVersions) { template in
+                                    templateRow(for: template, isBuiltIn: true)
+                                }
+                            }
+                        }
+
+                        // Custom Templates Section
+                        let customVersions = groupedTemplates.values.flatMap({ $0 }).filter({ !$0.isBuiltIn }).sorted(by: { ($0.name ?? "") < ($1.name ?? "") })
+                        if !customVersions.isEmpty {
+                            Section(header: Text("Custom Templates")) {
+                                ForEach(customVersions) { template in
+                                    templateRow(for: template, isBuiltIn: false)
+                                }
+                            }
+                        }
+
+                        // Show no results if search found nothing
+                        if !searchText.isEmpty && filteredTemplates.isEmpty {
+                            Section {
+                                HStack {
+                                    Spacer()
+                                    VStack(spacing: 12) {
+                                        Image(systemName: "magnifyingglass.circle")
+                                            .font(.largeTitle)
+                                            .foregroundColor(.secondary)
+
+                                        Text("No templates found")
+                                            .font(.headline)
+                                            .foregroundColor(.secondary)
+
+                                        Text("Try a different search term")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.vertical, 32)
+                            }
+                        }
+                    }
+                }
+                .listStyle(.insetGrouped)
+                .navigationTitle("Templates")
+
+                // Template Statistics Footer
+                if !templateManager.templates.isEmpty {
+                    VStack(spacing: 0) {
+                        Divider()
+                        HStack(spacing: 16) {
+                            Spacer()
+
+                            Label("\(templateManager.builtInTemplateCount) Built-in",
+                                  systemImage: "star")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Divider()
+                                .frame(height: 20)
+
+                            Label("\(templateManager.customTemplateCount) Custom",
+                                  systemImage: "plus")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Divider()
+                                .frame(height: 20)
+
+                            Label("\(templateManager.totalTemplateCount) Total",
+                                  systemImage: "square.stack.3d.down.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Spacer()
+                        }
+                        .padding(.vertical, 12)
+                        .background(Color.primary.opacity(0.05))
+                    }
                 }
             }
-        }
-        .sheet(isPresented: $showingTemplateBuilder) {
-            SimpleTemplateBuilderView { name, templateType, fieldCount in
-                templateManager.addTemplate(name: name, templateType: templateType, fieldCount: fieldCount)
+            .navigationDestination(isPresented: Binding(
+                get: { selectedTemplate != nil },
+                set: { if !$0 { selectedTemplate = nil } }
+            )) {
+                if let template = selectedTemplate {
+                    TemplateDetailView(template: template)
+                }
+            }
+            .sheet(isPresented: $showingTemplateTypePicker) {
+                TemplateTypePicker { templateType in
+                    selectedTemplateType = templateType
+                    showingTemplateBuilder = true
+                }
+            }
+            .sheet(isPresented: $showingTemplateBuilder) {
+                TemplateBuilderView(templateType: selectedTemplateType)
             }
         }
         .task {
             await templateManager.loadTemplates()
         }
-        .alert("Template Details", isPresented: $showingTemplateDetails, actions: {
-            Button("Use Template", action: {
-                showingTemplateDetails = false
-                let templateName = selectedTemplate?.name ?? "Unknown"
-                print("Starting inspection with template: \(templateName)")
-
-                // Simulate session creation and navigation
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    // This would navigate to write-up form in the real app
-                    print("✅ Template '\(templateName)' is ready for inspection")
-                    print("🚀 In a full app, this would navigate to the write-up form with \(selectedTemplate?.fieldCount ?? 0) fields")
-                }
-            })
-            Button("View Template", action: {
-                showingTemplateDetails = false
-                let templateName = selectedTemplate?.name ?? "Unknown"
-                let fieldCount = selectedTemplate?.fieldCount ?? 0
-                let type = selectedTemplate?.templateType == "PU" ? "Pickup" : "Non-Conformance"
-
-                // Show template preview
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    printTemplatePreview(name: templateName, type: type, fieldCount: fieldCount)
-                }
-            })
-            Button("Cancel", role: .cancel, action: {})
-        }, message: {
-            if let template = selectedTemplate {
-                Text("""
-                Name: \(template.name ?? "Untitled")
-                Type: \(template.templateType == "PU" ? "Pickup" : "Non-Conformance")
-                Fields: \(template.fieldCount)
-                Status: \(template.isBuiltIn ? "Built-in" : "Custom")
-                """)
-            } else {
-                Text("No template selected")
-            }
-        })
     }
-}
 
-struct TemplateRow: View {
-    let template: DisplayTemplate
+    // MARK: - Private Views
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(template.name ?? "Untitled")
-                            .font(.headline)
-
-                        if template.isBuiltIn {
-                            Image(systemName: "star.fill")
-                                .foregroundColor(.yellow)
-                                .font(.caption)
-                        }
-
-                        Spacer()
-
-                        HStack {
-                            Text(template.templateType == "PU" ? "Pickup" : "Non-Conformance")
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 2)
-                                .background(
-                                    template.templateType == "PU" ?
-                                    Color.green.opacity(0.2) :
-                                    Color.blue.opacity(0.2)
-                                )
-                                .foregroundColor(template.templateType == "PU" ? .green : .blue)
-                                .cornerRadius(8)
-
-                            Image(systemName: "chevron.right")
-                                .foregroundColor(.gray)
-                                .font(.caption)
-                        }
-                    }
-
-                    Text("\(template.fieldCount) fields")
-                        .font(.subheadline)
+    private var emptyStateView: some View {
+        Section {
+            VStack(spacing: 20) {
+                VStack(spacing: 16) {
+                    Image(systemName: "doc.badge.plus")
+                        .font(.system(size: 64))
                         .foregroundColor(.secondary)
 
-                    if let lastModified = template.lastModified {
-                        Text("Modified \(lastModified.formatted(date: .abbreviated, time: .omitted))")
-                            .font(.caption2)
-                            .foregroundColor(.gray)
+                    Text("No Templates Yet")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+
+                    Text("Create your first template to get started with inspection write-ups")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                VStack(spacing: 12) {
+                    Button {
+                        showingTemplateTypePicker = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                            Text("Create First Template")
+                        }
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 24)
+                        .background(Color.accentColor)
+                        .cornerRadius(12)
                     }
+
+                    Button {
+                        // Add sample templates
+                        addSampleTemplates()
+                    } label: {
+                        HStack {
+                            Image(systemName: "sparkles")
+                            Text("Add Sample Templates")
+                        }
+                        .font(.headline)
+                        .foregroundColor(.accentColor)
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 24)
+                        .cornerRadius(12)
+                    }
+                }
+            }
+            .padding(.vertical, 40)
+        }
+    }
+
+    private func templateRow(for template: InspectionTemplate, isBuiltIn: Bool) -> some View {
+        Button {
+            selectedTemplate = template
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .center, spacing: 8) {
+                    // Template Icon
+                    if isBuiltIn {
+                        Image(systemName: "star.fill")
+                            .foregroundColor(.yellow)
+                            .font(.title3)
+                    } else {
+                        Image(systemName: "doc.fill")
+                            .foregroundColor(.accentColor)
+                            .font(.title3)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        // Template Name and Type
+                        HStack(alignment: .center) {
+                            Text(template.name ?? "Unnamed Template")
+                                .font(.headline)
+
+                            Spacer()
+
+                            // Template type badge
+                            Text(templateTypeBadge(for: template))
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(templateTypeColor(for: template).opacity(0.1))
+                                .foregroundColor(templateTypeColor(for: template))
+                                .cornerRadius(8)
+                        }
+
+                        // Field count and status
+                        HStack(spacing: 12) {
+                            Text(fieldCountText(for: template))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            if let lastModified = template.lastModified {
+                                Text(lastModified.formatted(.relative(presentation: .named)))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        // Field preview badges
+                        let configs = template.decodedFieldConfigurations
+                        if !configs.isEmpty {
+                            HStack(spacing: 6) {
+                                fieldVisibilityIndicator(for: configs)
+                                if configs.count > 3 {
+                                    Text("+\(configs.count - 3)")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(.top, 2)
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .swipeActions(edge: isBuiltIn ? .leading : .trailing) {
+            if !isBuiltIn {
+                Button(role: .destructive) {
+                    Task {
+                        await deleteTemplate(template)
+                    }
+                } label: {
+                    Label("Delete", systemImage: "trash")
                 }
             }
         }
-        .padding(.vertical, 8)
+    }
+
+    // MARK: - Helper Functions
+
+    private func templateTypeBadge(for template: InspectionTemplate) -> String {
+        switch template.templateType {
+        case "PU": return "PU"
+        case "NC": return "NC"
+        default: return "UN"
+        }
+    }
+
+    private func templateTypeColor(for template: InspectionTemplate) -> Color {
+        switch template.templateType {
+        case "PU": return .green
+        case "NC": return .blue
+        default: return .gray
+        }
+    }
+
+    private func fieldCountText(for template: InspectionTemplate) -> String {
+        let configs = template.decodedFieldConfigurations
+        return "\(configs.count) field\(configs.count != 1 ? "s" : "")"
+    }
+
+    private func fieldVisibilityIndicator(for configs: [TemplateFieldConfiguration]) -> some View {
+        HStack(spacing: 4) {
+            let required = configs.filter { $0.visibility == .required }.count
+            let visible = configs.filter { $0.visibility == .visible }.count
+            let hidden = configs.filter { $0.visibility == .hidden }.count
+
+            if required > 0 {
+                Circle()
+                    .fill(Color.red.opacity(0.8))
+                    .frame(width: 6, height: 6)
+            }
+            if visible > 0 {
+                Circle()
+                    .fill(Color.blue.opacity(0.8))
+                    .frame(width: 6, height: 6)
+            }
+            if hidden > 0 {
+                Circle()
+                    .fill(Color.gray.opacity(0.8))
+                    .frame(width: 6, height: 6)
+            }
+        }
+    }
+
+    private func addSampleTemplates() {
+        Task {
+            // Add FOD template
+            if !templateManager.builtInTemplates.contains(where: { $0.name == "FOD Cleanup" }) {
+                let fodConfig = [
+                    TemplateFieldConfiguration(fieldName: "issue", visibility: .required, prefix: "FOD PRESENT. "),
+                    TemplateFieldConfiguration(fieldName: "location", visibility: .required),
+                    TemplateFieldConfiguration(fieldName: "xCoordinate", visibility: .required),
+                    TemplateFieldConfiguration(fieldName: "yCoordinate", visibility: .required),
+                    TemplateFieldConfiguration(fieldName: "zCoordinate", visibility: .required)
+                ]
+
+                await templateManager.createBuiltInTemplate(name: "FOD Cleanup", templateType: "PU", fieldConfigs: fodConfig)
+            }
+
+            // Add QA Write-up template
+            if !templateManager.builtInTemplates.contains(where: { $0.name == "Standard QA Write-up" }) {
+                let qaConfig = [
+                    TemplateFieldConfiguration(fieldName: "itemDescription", visibility: .required),
+                    TemplateFieldConfiguration(fieldName: "issue", visibility: .required),
+                    TemplateFieldConfiguration(fieldName: "shouldBe", visibility: .required),
+                    TemplateFieldConfiguration(fieldName: "location", visibility: .required),
+                    TemplateFieldConfiguration(fieldName: "xCoordinate", visibility: .visible),
+                    TemplateFieldConfiguration(fieldName: "yCoordinate", visibility: .visible),
+                    TemplateFieldConfiguration(fieldName: "zCoordinate", visibility: .visible)
+                ]
+
+                await templateManager.createBuiltInTemplate(name: "Standard QA Write-up", templateType: "PU", fieldConfigs: qaConfig)
+            }
+
+            // Add Equipment Defect template
+            if !templateManager.builtInTemplates.contains(where: { $0.name == "Equipment Defect" }) {
+                let defectConfig = [
+                    TemplateFieldConfiguration(fieldName: "itemDescription", visibility: .required, defaultValue: "EQUIPMENT DEFECT"),
+                    TemplateFieldConfiguration(fieldName: "irm", visibility: .required),
+                    TemplateFieldConfiguration(fieldName: "issue", visibility: .required, prefix: "EQUIPMENT DEFECT DISCOVERED. "),
+                    TemplateFieldConfiguration(fieldName: "shouldBe", visibility: .required),
+                    TemplateFieldConfiguration(fieldName: "location", visibility: .required),
+                    TemplateFieldConfiguration(fieldName: "xCoordinate", visibility: .visible),
+                    TemplateFieldConfiguration(fieldName: "yCoordinate", visibility: .visible),
+                    TemplateFieldConfiguration(fieldName: "zCoordinate", visibility: .visible)
+                ]
+
+                await templateManager.createBuiltInTemplate(name: "Equipment Defect", templateType: "NC", fieldConfigs: defectConfig)
+            }
+
+            await templateManager.loadTemplates()
+        }
+    }
+
+    private func deleteTemplate(_ template: InspectionTemplate) async {
+        if await templateManager.deleteTemplate(template) {
+            print("✅ Deleted template: \(template.name ?? "Unknown")")
+        } else {
+            print("❌ Failed to delete template")
+        }
     }
 }
 
+// MARK: - Template Type Picker Sheet
+
+struct TemplateTypePicker: View {
+    @Environment(\.dismiss) private var dismiss
+    let onTemplateTypeSelected: (String) -> Void
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 32) {
+                VStack(spacing: 16) {
+                    Image(systemName: "doc.badge.plus")
+                        .font(.system(size: 80))
+                        .foregroundColor(.accentColor)
+
+                    Text("New Template")
+                        .font(.title)
+                        .fontWeight(.bold)
+
+                    Text("Choose the type of template you want to create")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal)
+
+                VStack(spacing: 24) {
+                    // PU Template Option
+                    Button(action: {
+                        onTemplateTypeSelected("PU")
+                        dismiss()
+                    }) {
+                        VStack(spacing: 16) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text("Pickup (PU)")
+                                            .font(.headline)
+                                            .foregroundColor(.green)
+
+                                        Text("Routine Inspections")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+
+                                    Text("• Daily quality assurance")
+                                    Text("• Maintenance inspections")
+                                    Text("• Routine compliance checks")
+                                    Text("• Equipment inspections")
+
+                                    Text("Where you pick up and address issues found during operations")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.leading)
+                                }
+
+                                Spacer()
+
+                                Image(systemName: "checkmark.circle")
+                                    .font(.largeTitle)
+                                    .foregroundColor(.green)
+                            }
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.green.opacity(0.1))
+                        .cornerRadius(16)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.green.opacity(0.3), lineWidth: 1)
+                        )
+                        .contentShape(Rectangle())
+                    }
+
+                    // NC Template Option
+                    Button(action: {
+                        onTemplateTypeSelected("NC")
+                        dismiss()
+                    }) {
+                        VStack(spacing: 16) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text("Non-Conformance (NC)")
+                                            .font(.headline)
+                                            .foregroundColor(.blue)
+
+                                        Text("Issue Resolution")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+
+                                    Text("• Equipment defects")
+                                    Text("• Process non-compliance")
+                                    Text("• Quality issues")
+                                    Text("• Safety concerns")
+
+                                    Text("Where you document and resolve non-conforming conditions")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.leading)
+                                }
+
+                                Spacer()
+
+                                Image(systemName: "wrench.and.screwdriver")
+                                    .font(.largeTitle)
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.blue.opacity(0.1))
+                        .cornerRadius(16)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                        )
+                        .contentShape(Rectangle())
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 16)
+            }
+            .navigationTitle("Template Type")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarItems(trailing: Button("Cancel") {
+                dismiss()
+            })
+            #endif
+            #if os(macOS)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+            #endif
+        }
+    }
+}
 
 #Preview {
     TemplateLibraryView()

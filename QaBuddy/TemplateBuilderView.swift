@@ -18,167 +18,242 @@ struct TemplateBuilderView: View {
     @State private var isEditMode = false
     @State private var hasUnsavedChanges = false
 
-    init(template: InspectionTemplate? = nil) {
+    init(template: InspectionTemplate? = nil, templateType: String? = nil) {
         self.template = template
         _templateName = State(initialValue: template?.name ?? "")
-        _templateType = State(initialValue: template?.templateType ?? "PU")
+        _templateType = State(initialValue: template?.templateType ?? templateType ?? "PU")
     }
 
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                ScrollView {
-                    Form {
-                        // Template Information Section
-                        Section(header: Text("Template Information")) {
-                            TextField("Template Name", text: $templateName)
+                Form {
+                    // Template Information Section
+                    Section(header: HStack {
+                        Text("Template Information")
+                        Spacer()
+                        if templateName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Image(systemName: "exclamationmark.circle")
+                                .foregroundColor(.red)
+                                .font(.caption)
+                        }
+                    }) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Template Name")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+
+                            TextField("e.g., 'Daily Inspection', 'FOD Checklist'", text: $templateName)
                                 .onChange(of: templateName) { _ in
                                     hasUnsavedChanges = true
                                     updateUnsavedChanges()
                                 }
+                        }
 
-                            Picker("Template Type", selection: $templateType) {
-                                Text("Pickup (PU)").tag("PU")
-                                Text("Non-Conformance (NC)").tag("NC")
-                            }
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Template Type")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
 
-
-
-                            if let template = template {
+                            Picker("Type", selection: $templateType) {
                                 HStack {
-                                    Text("Built-in Template:")
-                                    Spacer()
-                                    if template.isBuiltIn {
-                                        Text("Yes - Creating Custom Copy")
-                                            .foregroundColor(.blue)
-                                            .fontWeight(.medium)
-                                    } else {
-                                        Text("Custom Template")
-                                            .foregroundColor(.green)
-                                            .fontWeight(.medium)
-                                    }
+                                    Text("Pickup (PU)")
+                                    Text("Routine inspections and maintenance")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                .tag("PU")
+                                .padding(.vertical, 4)
+
+                                HStack {
+                                    Text("Non-Conformance (NC)")
+                                    Text("Findings requiring corrective action")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                .tag("NC")
+                                .padding(.vertical, 4)
+                            }
+                            .pickerStyle(.inline)
+                            .labelsHidden()
+                        }
+
+                        if let template = template {
+                            HStack {
+                                Text(template.isBuiltIn ? "Based on: Built-in Template" : "Editing: Custom Template")
+                                Spacer()
+                                if template.isBuiltIn {
+                                    Text("✅ Built-in")
+                                        .foregroundColor(.blue)
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.blue.opacity(0.1))
+                                        .cornerRadius(8)
+                                } else {
+                                    Text("✅ Custom")
+                                        .foregroundColor(.green)
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.green.opacity(0.1))
+                                        .cornerRadius(8)
                                 }
                             }
                         }
+                    }
 
-                        // Field Configuration Section
-                        Section {
-                            HStack {
-                                Text("Field Configuration")
-                                    .font(.headline)
+                    // Field Configuration Section
+                    Section(header: HStack {
+                        HStack(spacing: 8) {
+                            Text("Field Configuration (")
+                                .font(.headline)
+                                .foregroundColor(.primary)
 
-                                Spacer()
+                            Text("\(fieldConfigurations.count)")
+                                .font(.headline)
+                                .foregroundColor(.blue)
 
+                            Text(fieldConfigurations.count == 1 ? "field)" : "fields)")
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                        }
+
+                        Spacer()
+                    }) {
+                        HStack(spacing: 0) {
+                            VStack(alignment: .leading) {
+                                Text("Add and configure fields for your inspection template")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.leading)
+                            }
+
+                            Spacer()
+
+                            HStack(spacing: 12) {
                                 Button(action: {
                                     withAnimation {
                                         isEditMode.toggle()
                                     }
                                 }) {
-                                    Image(systemName: isEditMode ? "checkmark.circle.fill" : "pencil.circle")
-                                        .foregroundColor(.accentColor)
-                                        .font(.title3)
+                                    VStack(spacing: 2) {
+                                        Image(systemName: isEditMode ? "checkmark.circle.fill" : "pencil.circle")
+                                            .font(.title3)
+                                        Text(isEditMode ? "Done" : "Edit")
+                                            .font(.caption)
+                                            .fontWeight(.medium)
+                                    }
+                                    .foregroundColor(.accentColor)
                                 }
 
                                 Button(action: { showingAddField = true }) {
-                                    Image(systemName: "plus.circle.fill")
-                                        .foregroundColor(.green)
-                                        .font(.title3)
-                                }
-                            }
-
-                            if fieldConfigurations.isEmpty {
-                                VStack(spacing: 16) {
-                                    Image(systemName: "text.append")
-                                        .font(.largeTitle)
-                                        .foregroundColor(.secondary)
-
-                                    Text("No fields configured")
-                                        .font(.headline)
-                                        .foregroundColor(.secondary)
-
-                                    Text("Tap the + button to add your first field")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .multilineTextAlignment(.center)
-                                        .padding(.horizontal)
-
-                                    Button("Add Sample Fields") {
-                                        addSampleFields()
-                                        hasUnsavedChanges = true
+                                    VStack(spacing: 2) {
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.title3)
+                                        Text("Add")
+                                            .font(.caption)
+                                            .fontWeight(.medium)
                                     }
-                                    .buttonStyle(.bordered)
-                                    .padding(.top, 8)
-                                }
-                                .frame(maxWidth: .infinity, minHeight: 200)
-                            } else {
-                                // Drag-to-reorder ForEach using onMove modifier
-                                ForEach(fieldConfigurations.indices, id: \.self) { index in
-                                    EditableFieldConfigurationRow(
-                                        config: $fieldConfigurations[index],
-                                        isEditMode: isEditMode,
-                                        onDelete: {
-                                            deleteField(fieldConfigurations[index])
-                                        }
-                                    )
-                                }
-                                .onMove(perform: moveFields)
-                                .moveDisabled(!isEditMode)
-                                .animation(.default, value: fieldConfigurations)
-                            }
-                        }
-
-                        // Template Statistics Section
-                        if !fieldConfigurations.isEmpty {
-                            Section(header: Text("Template Statistics")) {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("Total Fields: \(fieldConfigurations.count)")
-
-                                        let requiredCount = fieldConfigurations.filter { $0.visibility == .required }.count
-                                        let visibleCount = fieldConfigurations.filter { $0.visibility == .visible }.count
-                                        let hiddenCount = fieldConfigurations.filter { $0.visibility == .hidden }.count
-
-                                        Text("Required: \(requiredCount) | Visible: \(visibleCount) | Hidden: \(hiddenCount)")
-
-                                        if let hasValidation = fieldConfigurations.first(where: { !$0.validation.isEmpty }) {
-                                            Text("✅ Validation Rules Configured")
-                                                .foregroundColor(.green)
-                                        }
-
-                                        if let hasPrefixSuffix = fieldConfigurations.first(where: { !$0.prefix.isEmpty || !$0.suffix.isEmpty }) {
-                                            Text("✅ Prefix/Suffix Formatters")
-                                                .foregroundColor(.blue)
-                                        }
-                                    }
+                                    .foregroundColor(.green)
                                 }
                             }
                         }
 
-                        // Validation Summary
-                        if let errors = validationErrors, !errors.isEmpty {
-                            Section(header: Text("Validation Issues")) {
-                                ForEach(errors, id: \.self) { error in
-                                    HStack(alignment: .top, spacing: 8) {
-                                        Image(systemName: "exclamationmark.triangle.fill")
-                                            .foregroundColor(.orange)
-                                            .font(.caption)
+                        if fieldConfigurations.isEmpty {
+                            VStack(spacing: 16) {
+                                Image(systemName: "text.append")
+                                    .font(.largeTitle)
+                                    .foregroundColor(.secondary)
 
-                                        Text(error)
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
+                                Text("No fields configured")
+                                    .font(.headline)
+                                    .foregroundColor(.secondary)
+
+                                Text("Tap the + button to add your first field")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal)
+
+                                Button("Add Sample Fields") {
+                                    addSampleFields()
+                                    hasUnsavedChanges = true
+                                }
+                                .buttonStyle(.bordered)
+                                .padding(.top, 8)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 200)
+                        } else {
+                            // Drag-to-reorder ForEach using onMove modifier
+                            ForEach(fieldConfigurations.indices, id: \.self) { index in
+                                EditableFieldConfigurationRow(
+                                    config: $fieldConfigurations[index],
+                                    isEditMode: isEditMode,
+                                    onDelete: {
+                                        deleteField(fieldConfigurations[index])
+                                    }
+                                )
+                            }
+                            .onMove(perform: moveFields)
+                            .moveDisabled(!isEditMode)
+                            .animation(.default, value: fieldConfigurations)
+                        }
+                    }
+
+                    // Template Statistics Section
+                    if !fieldConfigurations.isEmpty {
+                        Section(header: Text("Template Statistics")) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Total Fields: \(fieldConfigurations.count)")
+
+                                    let requiredCount = fieldConfigurations.filter { $0.visibility == .required }.count
+                                    let visibleCount = fieldConfigurations.filter { $0.visibility == .visible }.count
+                                    let hiddenCount = fieldConfigurations.filter { $0.visibility == .hidden }.count
+
+                                    Text("Required: \(requiredCount) | Visible: \(visibleCount) | Hidden: \(hiddenCount)")
+
+                                    if fieldConfigurations.first(where: { !$0.validation.isEmpty }) != nil {
+                                        Text("✅ Validation Rules Configured")
+                                            .foregroundColor(.green)
+                                    }
+
+                                    if fieldConfigurations.first(where: { !$0.prefix.isEmpty || !$0.suffix.isEmpty }) != nil {
+                                        Text("✅ Prefix/Suffix Formatters")
+                                            .foregroundColor(.blue)
                                     }
                                 }
-
-                                Button("Dismiss Issues") {
-                                    // Issues remain visible until fixed
-                                }
-                                .foregroundColor(.orange)
                             }
                         }
                     }
-                }
 
-                // Bottom toolbar for additional actions
+                    // Validation Summary
+                    if let errors = validationErrors, !errors.isEmpty {
+                        Section(header: Text("Validation Issues")) {
+                            ForEach(errors, id: \.self) { error in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundColor(.orange)
+                                        .font(.caption)
+
+                                    Text(error)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+
+                            Button("Dismiss Issues") {
+                                // Issues remain visible until fixed
+                            }
+                            .foregroundColor(.orange)
+                        }
+                    }
+                } // end Form
+
+                // Bottom toolbar for additional actions (kept inside VStack)
                 if hasUnsavedChanges {
                     HStack {
                         Button("Reset") {
@@ -204,7 +279,7 @@ struct TemplateBuilderView: View {
                     .background(Color(.systemBackground))
                     .shadow(radius: 2)
                 }
-            }
+            } // end VStack
             .navigationTitle(template == nil ? "New Template" : "Edit Template")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -251,7 +326,7 @@ struct TemplateBuilderView: View {
                     autoSaveDraft()
                 }
             }
-        }
+        } // end NavigationView
     }
 
     // MARK: - Validation
@@ -435,9 +510,11 @@ struct EditableFieldConfigurationRow: View {
     @Binding var config: EditableFieldConfiguration
     let isEditMode: Bool
     let onDelete: () -> Void
+    @State private var showDetails = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
+            // Main row content
             HStack(spacing: 8) {
                 if isEditMode {
                     Image(systemName: "line.horizontal.3")
@@ -445,66 +522,307 @@ struct EditableFieldConfigurationRow: View {
                         .font(.caption)
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        TextField("Field Name", text: $config.fieldName)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.subheadline)
-                            .fontWeight(.medium)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .center) {
+                        if isEditMode {
+                            TextField("Field Name", text: $config.fieldName)
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .frame(minWidth: 120)
+                        } else {
+                            Text(config.fieldName)
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                        }
 
                         Spacer()
 
-                        Picker("", selection: $config.visibility) {
-                            Text("▶️").tag(FieldVisibility.visible)
-                            Text("🟡").tag(FieldVisibility.required)
-                            Text("⚫").tag(FieldVisibility.hidden)
+                        // Always-visible visibility indicator with color coding
+                        visibilityBadge(for: config.visibility)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(visibilityBackgroundColor(for: config.visibility))
+                            .cornerRadius(12)
+
+                        // Expand/collapse button for details
+                        Button(action: { showDetails.toggle() }) {
+                            Image(systemName: showDetails ? "chevron.up.circle" : "chevron.down.circle")
+                                .foregroundColor(.blue)
+                                .font(.caption)
                         }
-                        .pickerStyle(.segmented)
-                        .frame(width: 100)
-                        .disabled(isEditMode)
                     }
 
-                    HStack(spacing: 12) {
-                        TextField("Default Value (Optional)", text: Binding(
-                            get: { config.defaultValue ?? "" },
-                            set: { config.defaultValue = $0.isEmpty ? nil : $0 }
-                        ))
-                        .textFieldStyle(.roundedBorder)
+                    // Quick properties summary (always visible)
+                    HStack(spacing: 16) {
+                        if let defaultValue = config.defaultValue, !defaultValue.isEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "star.fill")
+                                    .foregroundColor(.yellow)
+                                    .font(.system(size: 10))
+                                Text(defaultValue)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
 
-                        TextField("Prefix", text: $config.prefix)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
+                        if !config.prefix.isEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus.circle")
+                                    .foregroundColor(.blue)
+                                    .font(.system(size: 10))
+                                Text(config.prefix)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
 
-                        TextField("Suffix", text: $config.suffix)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
+                        if !config.suffix.isEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "minus.circle")
+                                    .foregroundColor(.purple)
+                                    .font(.system(size: 10))
+                                Text(config.suffix)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        if !config.validation.isEmpty {
+                            Image(systemName: "checkmark.shield.fill")
+                                .foregroundColor(.green)
+                                .font(.system(size: 10))
+                        }
                     }
-                    .font(.caption)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
-                    if !config.validation.isEmpty {
-                        Text("Validation: \(config.validation)")
-                            .font(.caption2)
-                            .foregroundColor(.blue)
+                    // Preview of how field will appear
+                    if !config.fieldName.isEmpty {
+                        Text("Preview: \(config.prefix)\(config.fieldName.capitalized)\(config.suffix)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(6)
                     }
                 }
             }
 
+            // Expandable details section
+            if showDetails {
+                VStack(alignment: .leading, spacing: 12) {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        // Field Name editing (when not in edit mode)
+                        if !isEditMode {
+                            HStack {
+                                Text("Field Name")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 80, alignment: .leading)
+
+                                TextField("", text: $config.fieldName)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.caption)
+                            }
+                        }
+
+                        // Visibility selector (always editable)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Visibility Level")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Picker("Visibility", selection: $config.visibility) {
+                                HStack {
+                                    Circle()
+                                        .fill(Color.green.opacity(0.3))
+                                        .frame(width: 12, height: 12)
+                                    Text("Visible")
+                                        .font(.caption)
+                                }
+                                .tag(FieldVisibility.visible)
+
+                                HStack {
+                                    Circle()
+                                        .fill(Color.orange.opacity(0.3))
+                                        .frame(width: 12, height: 12)
+                                    Text("Required")
+                                        .font(.caption)
+                                }
+                                .tag(FieldVisibility.required)
+
+                                HStack {
+                                    Circle()
+                                        .fill(Color.red.opacity(0.3))
+                                        .frame(width: 12, height: 12)
+                                    Text("Hidden")
+                                        .font(.caption)
+                                }
+                                .tag(FieldVisibility.hidden)
+                            }
+                            .pickerStyle(.inline)
+                            .labelsHidden()
+
+                            Text(visibilityDescription(for: config.visibility))
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 4)
+                        }
+
+                        // Default Value
+                        HStack {
+                            Text("Default")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(width: 80, alignment: .leading)
+
+                            TextField("Optional default value", text: Binding(
+                                get: { config.defaultValue ?? "" },
+                                set: { config.defaultValue = $0.isEmpty ? nil : $0 }
+                            ))
+                            .textFieldStyle(.roundedBorder)
+                            .font(.caption)
+                        }
+
+                        // Prefix and Suffix
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading) {
+                                Text("Prefix")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                TextField("Before field", text: $config.prefix)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.caption)
+                            }
+
+                            VStack(alignment: .leading) {
+                                Text("Suffix")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                TextField("After field", text: $config.suffix)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.caption)
+                            }
+                        }
+
+                        // Validation Pattern
+                        HStack(alignment: .top) {
+                            Text("Validation")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(width: 80, alignment: .leading)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                TextField("Regex pattern (optional)", text: $config.validation)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.caption)
+
+                                if !config.validation.isEmpty {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "checkmark.circle")
+                                            .foregroundColor(.green)
+                                            .font(.system(size: 10))
+
+                                        Text("Validation pattern set")
+                                            .font(.caption2)
+                                            .foregroundColor(.green)
+                                    }
+
+                                    if let commonPattern = commonPattern(for: config.validation) {
+                                        Text("Matches: \(commonPattern.description)")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    } else {
+                                        Text("Custom validation pattern")
+                                            .font(.caption2)
+                                            .foregroundColor(.blue)
+                                    }
+                                } else {
+                                    Text("No validation - optional field")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.leading, 20)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .animation(.easeInOut(duration: 0.3), value: showDetails)
+            }
+
+            // Action buttons for edit mode
             if isEditMode {
                 HStack {
                     Spacer()
 
                     Button(action: onDelete) {
-                        Image(systemName: "trash.fill")
-                            .foregroundColor(.red)
-                            .padding(.vertical, 4)
-                            .padding(.horizontal, 8)
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash.fill")
+                                .font(.caption)
+                            Text("Delete")
+                                .font(.caption)
+                        }
+                        .foregroundColor(.red)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 12)
+                        .background(Color.red.opacity(0.1))
+                        .cornerRadius(8)
                     }
-                    .background(Color.red.opacity(0.1))
-                    .cornerRadius(6)
                 }
+                .padding(.top, 4)
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 12)
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+        .padding(.horizontal, 4)
+    }
+
+    private func visibilityBadge(for visibility: FieldVisibility) -> Text {
+        switch visibility {
+        case .visible:
+            return Text("Visible").foregroundColor(.green).font(.caption).fontWeight(.medium)
+        case .required:
+            return Text("Required").foregroundColor(.orange).font(.caption).fontWeight(.medium)
+        case .hidden:
+            return Text("Hidden").foregroundColor(.red).font(.caption).fontWeight(.medium)
+        }
+    }
+
+    private func visibilityBackgroundColor(for visibility: FieldVisibility) -> Color {
+        switch visibility {
+        case .visible: return Color.green.opacity(0.2)
+        case .required: return Color.orange.opacity(0.2)
+        case .hidden: return Color.red.opacity(0.2)
+        }
+    }
+
+    private func visibilityDescription(for visibility: FieldVisibility) -> String {
+        switch visibility {
+        case .visible: return "• Appears in write-up form - user can modify value"
+        case .required: return "• Must be completed - highlighted in write-up form"
+        case .hidden: return "• Not shown to user - uses default or calculated value"
+        }
+    }
+
+    private func commonPattern(for pattern: String) -> (description: String, example: String)? {
+        let patterns = [
+            "^[A-Z]{3}-[0-9]{4}$": (description: "Aircraft Registration", example: "ABC-1234"),
+            "^[0-9]{1,3}(\\.[0-9]{1,2})?$": (description: "Coordinate/Weight", example: "45.67"),
+            ".+": (description: "Required Non-Empty", example: "any text"),
+            "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z]{2,}$": (description: "Email Address", example: "user@domain.com"),
+            "^[0-9]{6,}$": (description: "6+ Digit Numbers", example: "123456"),
+            "^[0-9]+$": (description: "Whole Numbers Only", example: "12345"),
+        ]
+
+        return patterns[pattern]
     }
 }
 
@@ -516,64 +834,307 @@ struct AddFieldSheet: View {
     @State private var prefix = ""
     @State private var suffix = ""
     @State private var validation = ""
+    @State private var showValidationExamples = false
 
     let onAdd: (EditableFieldConfiguration) -> Void
 
+    private var previewText: String {
+        let preview = (prefix + fieldName.capitalized + suffix)
+        return "Preview: " + (preview.isEmpty ? fieldName : preview)
+    }
+
     var body: some View {
         NavigationView {
-            Form {
-                Section(header: Text("Field Definition")) {
-                    TextField("Field Name", text: $fieldName)
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Header with preview
+                    VStack(alignment: .leading, spacing: 8) {
+                        if !fieldName.isEmpty {
+                            HStack {
+                                Text("Field Preview")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.secondary)
 
-                    Picker("Visibility", selection: $visibility) {
-                        Text("Visible").tag(FieldVisibility.visible)
-                        Text("Required").tag(FieldVisibility.required)
-                        Text("Hidden").tag(FieldVisibility.hidden)
+                                Spacer()
+
+                                visibilityIndicator(for: visibility)
+                                    .font(.caption)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(visibilityColor(for: visibility).opacity(0.2))
+                                    .cornerRadius(6)
+                            }
+
+                            Text(previewText)
+                                .font(.body)
+                                .fontWeight(.medium)
+                                .padding()
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
-                }
+                    .padding()
+                    .background(Color(.systemBackground))
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
 
-                Section(header: Text("Default Configuration")) {
-                    TextField("Default Value (Optional)", text: Binding(
-                        get: { defaultValue },
-                        set: { defaultValue = $0 }
-                    ))
-                    TextField("Prefix", text: $prefix)
-                    TextField("Suffix", text: $suffix)
-                }
+                    Form {
+                        Section(header: Text("Basic Information")) {
+                            HStack {
+                                TextField("Field Name*", text: $fieldName)
+                                if fieldName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    Image(systemName: "exclamationmark.circle")
+                                        .foregroundColor(.red)
+                                        .font(.caption)
+                                }
+                            }
+                            .padding(.vertical, 4)
 
-                Section(header: Text("Validation")) {
-                    TextField("Regex Pattern (Optional)", text: $validation)
-                    Text("Common examples: email, required, [0-9]+")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Field Visibility")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
 
-                Section {
-                    Button("Add Field") {
-                        let config = EditableFieldConfiguration(
-                            fieldName: fieldName.trimmingCharacters(in: .whitespaces),
-                            visibility: visibility,
-                            defaultValue: defaultValue.isEmpty ? nil : defaultValue,
-                            prefix: prefix,
-                            suffix: suffix,
-                            validation: validation
-                        )
-                        onAdd(config)
-                        dismiss()
+                                Picker("Visibility Level", selection: $visibility) {
+                                    HStack {
+                                        Circle()
+                                            .fill(Color.green.opacity(0.3))
+                                            .frame(width: 16, height: 16)
+                                        Text("Visible")
+                                            .foregroundColor(.primary)
+                                    }
+                                    .tag(FieldVisibility.visible)
+                                    .padding(.vertical, 8)
+
+                                    HStack {
+                                        Circle()
+                                            .fill(Color.orange.opacity(0.3))
+                                            .frame(width: 16, height: 16)
+                                        Text("Required")
+                                            .foregroundColor(.primary)
+                                    }
+                                    .tag(FieldVisibility.required)
+                                    .padding(.vertical, 8)
+
+                                    HStack {
+                                        Circle()
+                                            .fill(Color.red.opacity(0.3))
+                                            .frame(width: 16, height: 16)
+                                        Text("Hidden")
+                                            .foregroundColor(.primary)
+                                    }
+                                    .tag(FieldVisibility.hidden)
+                                    .padding(.vertical, 8)
+                                }
+                                .pickerStyle(.inline)
+                                .labelsHidden()
+
+                                Text(visibilityDescription(for: visibility))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .padding(.horizontal, 4)
+                            }
+                        }
+
+                        Section(header: Text("Default Values")) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Default Value (Optional)")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+
+                                TextField("Enter default value", text: $defaultValue)
+                                    .padding(8)
+                                    .background(Color.gray.opacity(0.1))
+                                    .cornerRadius(6)
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Prefix (Added before field name)")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+
+                                TextField("e.g., 'FOD PRESENT. '", text: $prefix)
+                                    .padding(8)
+                                    .background(Color.gray.opacity(0.1))
+                                    .cornerRadius(6)
+
+                                Text("Examples: 'IRR #', 'FOD - ', 'DEFECT: '")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Suffix (Added after value)")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+
+                                TextField("e.g., ' found', ' detected'", text: $suffix)
+                                    .padding(8)
+                                    .background(Color.gray.opacity(0.1))
+                                    .cornerRadius(6)
+
+                                Text("Examples: ' (lbs)', ' required', ' checklist'")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        Section(header:
+                            HStack {
+                                Text("Validation Pattern")
+                                Spacer()
+                                Button(action: { showValidationExamples.toggle() }) {
+                                    Image(systemName: showValidationExamples ? "chevron.up" : "chevron.down")
+                                        .font(.caption)
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                        ) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Regex Pattern (Optional)")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+
+                                TextField("e.g., ^[A-Z]{3}-[0-9]{4}$", text: $validation)
+                                    .padding(8)
+                                    .background(Color.gray.opacity(0.1))
+                                    .cornerRadius(6)
+
+                                if showValidationExamples {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text("Common Patterns:")
+                                            .font(.caption)
+                                            .fontWeight(.medium)
+                                            .padding(.top, 4)
+
+                                        validationExample("^[A-Z]{3}-[0-9]{4}$", "Aircraft registration (ABC-1234)")
+                                        validationExample("^[0-9]{1,3}(\\.[0-9]{1,2})?$", "Coordinates or weights")
+                                        validationExample(".+", "Required non-empty field")
+                                        validationExample("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z]{2,}$", "Email address")
+                                        validationExample("^[0-9]{6,}$", "6+ digit numbers")
+
+                                        Text("✓ Leave empty for no validation")
+                                            .font(.caption2)
+                                            .foregroundColor(.green)
+                                            .padding(.top, 4)
+                                    }
+                                } else {
+                                    Text("Tap help button above for examples")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .padding(.top, 2)
+                                }
+                            }
+                        }
+
+                        Section {
+                            HStack(spacing: 16) {
+                                Button(action: resetForm) {
+                                    Text("Reset")
+                                        .foregroundColor(.orange)
+                                        .padding(.vertical, 12)
+                                        .frame(maxWidth: .infinity)
+                                        .background(Color.orange.opacity(0.1))
+                                        .cornerRadius(8)
+                                }
+
+                                Button(action: addField) {
+                                    Text("Add Field")
+                                        .fontWeight(.medium)
+                                        .foregroundColor(.white)
+                                        .padding(.vertical, 12)
+                                        .frame(maxWidth: .infinity)
+                                        .background(isFormValid ? Color.blue : Color.gray)
+                                        .cornerRadius(8)
+                                }
+                                .disabled(!isFormValid)
+                            }
+                        }
                     }
-                    .disabled(fieldName.trimmingCharacters(in: .whitespaces).isEmpty)
-                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 8)
                 }
             }
-            .navigationTitle("Add Field")
+            .navigationTitle("Field Configuration")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .foregroundColor(.secondary)
                 }
             }
+        }
+    }
+
+    private func addField() {
+        let config = EditableFieldConfiguration(
+            fieldName: fieldName.trimmingCharacters(in: .whitespaces),
+            visibility: visibility,
+            defaultValue: defaultValue.isEmpty ? nil : defaultValue,
+            prefix: prefix,
+            suffix: suffix,
+            validation: validation
+        )
+        onAdd(config)
+        dismiss()
+    }
+
+    private func resetForm() {
+        fieldName = ""
+        visibility = .visible
+        defaultValue = ""
+        prefix = ""
+        suffix = ""
+        validation = ""
+        showValidationExamples = false
+    }
+
+    private var isFormValid: Bool {
+        !fieldName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func validationExample(_ pattern: String, _ description: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 4))
+                .foregroundColor(.blue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pattern)
+                    .font(.caption2)
+                    .fontWeight(.medium)
+                    .foregroundColor(.blue)
+                Text(description)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private func visibilityIndicator(for visibility: FieldVisibility) -> Text {
+        switch visibility {
+        case .visible: return Text("VISIBLE").foregroundColor(.green)
+        case .required: return Text("REQUIRED").foregroundColor(.orange)
+        case .hidden: return Text("HIDDEN").foregroundColor(.red)
+        }
+    }
+
+    private func visibilityColor(for visibility: FieldVisibility) -> Color {
+        switch visibility {
+        case .visible: return .green
+        case .required: return .orange
+        case .hidden: return .red
+        }
+    }
+
+    private func visibilityDescription(for visibility: FieldVisibility) -> String {
+        switch visibility {
+        case .visible: return "Field is shown in write-up form - user can enter custom value"
+        case .required: return "Field must be filled in by user - marked with yellow in form"
+        case .hidden: return "Field is not shown to user - uses default or computed value"
         }
     }
 }
