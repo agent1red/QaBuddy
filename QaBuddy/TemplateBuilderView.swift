@@ -845,216 +845,213 @@ struct AddFieldSheet: View {
 
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 0) {
-                    // Header with preview
-                    VStack(alignment: .leading, spacing: 8) {
-                        if !fieldName.isEmpty {
-                            HStack {
-                                Text("Field Preview")
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.secondary)
-
-                                Spacer()
-
-                                visibilityIndicator(for: visibility)
-                                    .font(.caption)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(visibilityColor(for: visibility).opacity(0.2))
-                                    .cornerRadius(6)
-                            }
-
-                            Text(previewText)
-                                .font(.body)
+            VStack {
+                // Header with preview
+                VStack(alignment: .leading, spacing: 8) {
+                    if !fieldName.isEmpty {
+                        HStack {
+                            Text("Field Preview")
+                                .font(.subheadline)
                                 .fontWeight(.medium)
-                                .padding()
-                                .background(Color.gray.opacity(0.1))
-                                .cornerRadius(8)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .foregroundColor(.secondary)
+
+                            Spacer()
+
+                            visibilityIndicator(for: visibility)
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(visibilityColor(for: visibility).opacity(0.2))
+                                .cornerRadius(6)
+                        }
+
+                        Text(previewText)
+                            .font(.body)
+                            .fontWeight(.medium)
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+                Form {
+                    Section(header: Text("Basic Information")) {
+                        HStack {
+                            TextField("Field Name*", text: $fieldName)
+                            if fieldName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Image(systemName: "exclamationmark.circle")
+                                    .foregroundColor(.red)
+                                    .font(.caption)
+                            }
+                        }
+                        .padding(.vertical, 4)
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Field Visibility")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+
+                            Picker("Visibility Level", selection: $visibility) {
+                                HStack {
+                                    Circle()
+                                        .fill(Color.green.opacity(0.3))
+                                        .frame(width: 16, height: 16)
+                                    Text("Visible")
+                                        .foregroundColor(.primary)
+                                }
+                                .tag(FieldVisibility.visible)
+                                .padding(.vertical, 8)
+
+                                HStack {
+                                    Circle()
+                                        .fill(Color.orange.opacity(0.3))
+                                        .frame(width: 16, height: 16)
+                                    Text("Required")
+                                        .foregroundColor(.primary)
+                                }
+                                .tag(FieldVisibility.required)
+                                .padding(.vertical, 8)
+
+                                HStack {
+                                    Circle()
+                                        .fill(Color.red.opacity(0.3))
+                                        .frame(width: 16, height: 16)
+                                    Text("Hidden")
+                                        .foregroundColor(.primary)
+                                }
+                                .tag(FieldVisibility.hidden)
+                                .padding(.vertical, 8)
+                            }
+                            .pickerStyle(.inline)
+                            .labelsHidden()
+
+                            Text(visibilityDescription(for: visibility))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 4)
                         }
                     }
-                    .padding()
-                    .background(Color(.systemBackground))
-                    .cornerRadius(12)
-                    .padding(.horizontal)
-                    .padding(.top, 8)
 
-                    Form {
-                        Section(header: Text("Basic Information")) {
-                            HStack {
-                                TextField("Field Name*", text: $fieldName)
-                                if fieldName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    Image(systemName: "exclamationmark.circle")
-                                        .foregroundColor(.red)
-                                        .font(.caption)
-                                }
+                    Section(header: Text("Default Values")) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Default Value (Optional)")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+
+                            TextField("Enter default value", text: $defaultValue)
+                                .padding(8)
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(6)
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Prefix (Added before field name)")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+
+                            TextField("e.g., 'FOD PRESENT. '", text: $prefix)
+                                .padding(8)
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(6)
+
+                            Text("Examples: 'IRR #', 'FOD - ', 'DEFECT: '")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Suffix (Added after value)")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+
+                            TextField("e.g., ' found', ' detected'", text: $suffix)
+                                .padding(8)
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(6)
+
+                            Text("Examples: ' (lbs)', ' required', ' checklist'")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Section(header:
+                        HStack {
+                            Text("Validation Pattern")
+                            Spacer()
+                            Button(action: { showValidationExamples.toggle() }) {
+                                Image(systemName: showValidationExamples ? "chevron.up" : "chevron.down")
+                                    .font(.caption)
+                                    .foregroundColor(.blue)
                             }
-                            .padding(.vertical, 4)
+                        }
+                    ) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Regex Pattern (Optional)")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
 
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Field Visibility")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
+                            TextField("e.g., ^[A-Z]{3}-[0-9]{4}$", text: $validation)
+                                .padding(8)
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(6)
 
-                                Picker("Visibility Level", selection: $visibility) {
-                                    HStack {
-                                        Circle()
-                                            .fill(Color.green.opacity(0.3))
-                                            .frame(width: 16, height: 16)
-                                        Text("Visible")
-                                            .foregroundColor(.primary)
-                                    }
-                                    .tag(FieldVisibility.visible)
-                                    .padding(.vertical, 8)
+                            if showValidationExamples {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Common Patterns:")
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                        .padding(.top, 4)
 
-                                    HStack {
-                                        Circle()
-                                            .fill(Color.orange.opacity(0.3))
-                                            .frame(width: 16, height: 16)
-                                        Text("Required")
-                                            .foregroundColor(.primary)
-                                    }
-                                    .tag(FieldVisibility.required)
-                                    .padding(.vertical, 8)
+                                    validationExample("^[A-Z]{3}-[0-9]{4}$", "Aircraft registration (ABC-1234)")
+                                    validationExample("^[0-9]{1,3}(\\.[0-9]{1,2})?$", "Coordinates or weights")
+                                    validationExample(".+", "Required non-empty field")
+                                    validationExample("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z]{2,}$", "Email address")
+                                    validationExample("^[0-9]{6,}$", "6+ digit numbers")
 
-                                    HStack {
-                                        Circle()
-                                            .fill(Color.red.opacity(0.3))
-                                            .frame(width: 16, height: 16)
-                                        Text("Hidden")
-                                            .foregroundColor(.primary)
-                                    }
-                                    .tag(FieldVisibility.hidden)
-                                    .padding(.vertical, 8)
+                                    Text("✓ Leave empty for no validation")
+                                        .font(.caption2)
+                                        .foregroundColor(.green)
+                                        .padding(.top, 4)
                                 }
-                                .pickerStyle(.inline)
-                                .labelsHidden()
-
-                                Text(visibilityDescription(for: visibility))
+                            } else {
+                                Text("Tap help button above for examples")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
-                                    .padding(.horizontal, 4)
-                            }
-                        }
-
-                        Section(header: Text("Default Values")) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Default Value (Optional)")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-
-                                TextField("Enter default value", text: $defaultValue)
-                                    .padding(8)
-                                    .background(Color.gray.opacity(0.1))
-                                    .cornerRadius(6)
-                            }
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Prefix (Added before field name)")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-
-                                TextField("e.g., 'FOD PRESENT. '", text: $prefix)
-                                    .padding(8)
-                                    .background(Color.gray.opacity(0.1))
-                                    .cornerRadius(6)
-
-                                Text("Examples: 'IRR #', 'FOD - ', 'DEFECT: '")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Suffix (Added after value)")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-
-                                TextField("e.g., ' found', ' detected'", text: $suffix)
-                                    .padding(8)
-                                    .background(Color.gray.opacity(0.1))
-                                    .cornerRadius(6)
-
-                                Text("Examples: ' (lbs)', ' required', ' checklist'")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-
-                        Section(header:
-                            HStack {
-                                Text("Validation Pattern")
-                                Spacer()
-                                Button(action: { showValidationExamples.toggle() }) {
-                                    Image(systemName: showValidationExamples ? "chevron.up" : "chevron.down")
-                                        .font(.caption)
-                                        .foregroundColor(.blue)
-                                }
-                            }
-                        ) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Regex Pattern (Optional)")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-
-                                TextField("e.g., ^[A-Z]{3}-[0-9]{4}$", text: $validation)
-                                    .padding(8)
-                                    .background(Color.gray.opacity(0.1))
-                                    .cornerRadius(6)
-
-                                if showValidationExamples {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text("Common Patterns:")
-                                            .font(.caption)
-                                            .fontWeight(.medium)
-                                            .padding(.top, 4)
-
-                                        validationExample("^[A-Z]{3}-[0-9]{4}$", "Aircraft registration (ABC-1234)")
-                                        validationExample("^[0-9]{1,3}(\\.[0-9]{1,2})?$", "Coordinates or weights")
-                                        validationExample(".+", "Required non-empty field")
-                                        validationExample("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z]{2,}$", "Email address")
-                                        validationExample("^[0-9]{6,}$", "6+ digit numbers")
-
-                                        Text("✓ Leave empty for no validation")
-                                            .font(.caption2)
-                                            .foregroundColor(.green)
-                                            .padding(.top, 4)
-                                    }
-                                } else {
-                                    Text("Tap help button above for examples")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .padding(.top, 2)
-                                }
-                            }
-                        }
-
-                        Section {
-                            HStack(spacing: 16) {
-                                Button(action: resetForm) {
-                                    Text("Reset")
-                                        .foregroundColor(.orange)
-                                        .padding(.vertical, 12)
-                                        .frame(maxWidth: .infinity)
-                                        .background(Color.orange.opacity(0.1))
-                                        .cornerRadius(8)
-                                }
-
-                                Button(action: addField) {
-                                    Text("Add Field")
-                                        .fontWeight(.medium)
-                                        .foregroundColor(.white)
-                                        .padding(.vertical, 12)
-                                        .frame(maxWidth: .infinity)
-                                        .background(isFormValid ? Color.blue : Color.gray)
-                                        .cornerRadius(8)
-                                }
-                                .disabled(!isFormValid)
+                                    .padding(.top, 2)
                             }
                         }
                     }
-                    .padding(.bottom, 8)
+
+                    Section {
+                        HStack(spacing: 16) {
+                            Button(action: resetForm) {
+                                Text("Reset")
+                                    .foregroundColor(.orange)
+                                    .padding(.vertical, 12)
+                                    .frame(maxWidth: .infinity)
+                                    .background(Color.orange.opacity(0.1))
+                                    .cornerRadius(8)
+                            }
+
+                            Button(action: addField) {
+                                Text("Add Field")
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.white)
+                                    .padding(.vertical, 12)
+                                    .frame(maxWidth: .infinity)
+                                    .background(isFormValid ? Color.blue : Color.gray)
+                                    .cornerRadius(8)
+                            }
+                            .disabled(!isFormValid)
+                        }
+                    }
                 }
             }
             .navigationTitle("Field Configuration")
