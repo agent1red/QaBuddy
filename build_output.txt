@@ -1,0 +1,77 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild build -scheme QaBuddy -configuration Debug
+
+--- xcodebuild: WARNING: Using the first of multiple matching destinations:
+{ platform:macOS, arch:arm64, variant:Designed for [iPad,iPhone], id:00006020-001C60491ED3C01E, name:My Mac }
+{ platform:iOS, id:dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder, name:Any iOS Device }
+{ platform:iOS Simulator, id:dvtdevice-DVTiOSDeviceSimulatorPlaceholder-iphonesimulator:placeholder, name:Any iOS Simulator Device }
+{ platform:iOS Simulator, arch:arm64, id:6D8B69FA-426D-4BD8-8F3D-77BDEE33A1F2, OS:18.5, name:iPad (A16) }
+{ platform:iOS Simulator, arch:x86_64, id:6D8B69FA-426D-4BD8-8F3D-77BDEE33A1F2, OS:18.5, name:iPad (A16) }
+{ platform:iOS Simulator, arch:arm64, id:FEFAE5D5-7A75-4E69-BAD1-8C5757A6B15A, OS:26.0, name:iPad (A16) }
+{ platform:iOS Simulator, arch:arm64, id:1E49A86A-857E-40FE-B260-8EBBAD2ACCDB, OS:18.5, name:iPad Air 11-inch (M3) }
+{ platform:iOS Simulator, arch:x86_64, id:1E49A86A-857E-40FE-B260-8EBBAD2ACCDB, OS:18.5, name:iPad Air 11-inch (M3) }
+{ platform:iOS Simulator, arch:arm64, id:80E65856-6439-4E14-85A7-691CF7DBC761, OS:26.0, name:iPad Air 11-inch (M3) }
+{ platform:iOS Simulator, arch:arm64, id:12EE88B8-761B-4ED5-9328-ED4554BC28C1, OS:18.5, name:iPad Air 13-inch (M3) }
+{ platform:iOS Simulator, arch:x86_64, id:12EE88B8-761B-4ED5-9328-ED4554BC28C1, OS:18.5, name:iPad Air 13-inch (M3) }
+{ platform:iOS Simulator, arch:arm64, id:E8D14B53-8597-4FAD-B472-86290C294A7B, OS:26.0, name:iPad Air 13-inch (M3) }
+{ platform:iOS Simulator, arch:arm64, id:A79B83C9-5129-48E9-87E8-394194DA6180, OS:18.5, name:iPad Pro 11-inch (M4) }
+{ platform:iOS Simulator, arch:x86_64, id:A79B83C9-5129-48E9-87E8-394194DA6180, OS:18.5, name:iPad Pro 11-inch (M4) }
+{ platform:iOS Simulator, arch:arm64, id:82D2C9A6-1DEE-4073-B441-9CCDAA0A4936, OS:26.0, name:iPad Pro 11-inch (M4) }
+{ platform:iOS Simulator, arch:arm64, id:F5ADACDD-CFD8-4145-B2CB-EB1B2304A554, OS:18.5, name:iPad Pro 13-inch (M4) }
+{ platform:iOS Simulator, arch:x86_64, id:F5ADACDD-CFD8-4145-B2CB-EB1B2304A554, OS:18.5, name:iPad Pro 13-inch (M4) }
+{ platform:iOS Simulator, arch:arm64, id:24EA9E62-0A98-404E-9C20-970624F24352, OS:26.0, name:iPad Pro 13-inch (M4) }
+{ platform:iOS Simulator, arch:arm64, id:394477B0-862D-4848-A16E-4AC825FA3A4E, OS:18.5, name:iPad mini (A17 Pro) }
+{ platform:iOS Simulator, arch:x86_64, id:394477B0-862D-4848-A16E-4AC825FA3A4E, OS:18.5, name:iPad mini (A17 Pro) }
+{ platform:iOS Simulator, arch:arm64, id:FC99F79D-5873-4A51-A537-84470970E760, OS:26.0, name:iPad mini (A17 Pro) }
+{ platform:iOS Simulator, arch:arm64, id:9B8A4C59-89E4-4B35-84DB-A796841BE872, OS:18.5, name:iPhone 16 }
+{ platform:iOS Simulator, arch:x86_64, id:9B8A4C59-89E4-4B35-84DB-A796841BE872, OS:18.5, name:iPhone 16 }
+{ platform:iOS Simulator, arch:arm64, id:8FF99766-A768-4FD0-9E73-5477EC0627F0, OS:26.0, name:iPhone 16 }
+{ platform:iOS Simulator, arch:arm64, id:B973AFD9-9781-429E-A44F-39DF64891B61, OS:18.5, name:iPhone 16 Plus }
+{ platform:iOS Simulator, arch:x86_64, id:B973AFD9-9781-429E-A44F-39DF64891B61, OS:18.5, name:iPhone 16 Plus }
+{ platform:iOS Simulator, arch:arm64, id:214F0F05-A4DE-4FBB-93D4-4DF00A9595FA, OS:26.0, name:iPhone 16 Plus }
+{ platform:iOS Simulator, arch:arm64, id:0F2CB07F-15E1-4444-91DB-1E4ADBB1BFEA, OS:18.5, name:iPhone 16 Pro }
+{ platform:iOS Simulator, arch:x86_64, id:0F2CB07F-15E1-4444-91DB-1E4ADBB1BFEA, OS:18.5, name:iPhone 16 Pro }
+{ platform:iOS Simulator, arch:arm64, id:B13BD369-AD6D-4FCF-8E40-A5053BC323F3, OS:26.0, name:iPhone 16 Pro }
+{ platform:iOS Simulator, arch:arm64, id:A83A3997-583F-479F-9F45-F323EFE6391E, OS:18.5, name:iPhone 16 Pro Max }
+{ platform:iOS Simulator, arch:x86_64, id:A83A3997-583F-479F-9F45-F323EFE6391E, OS:18.5, name:iPhone 16 Pro Max }
+{ platform:iOS Simulator, arch:arm64, id:77662923-E898-4658-B35F-F17F6932AC3C, OS:26.0, name:iPhone 16 Pro Max }
+{ platform:iOS Simulator, arch:arm64, id:FB7DE86D-AAAC-44D9-A7F7-68274AA0842E, OS:18.5, name:iPhone 16e }
+{ platform:iOS Simulator, arch:x86_64, id:FB7DE86D-AAAC-44D9-A7F7-68274AA0842E, OS:18.5, name:iPhone 16e }
+{ platform:iOS Simulator, arch:arm64, id:E0EE1ADC-0D0C-4065-9D5E-4260284F3EB0, OS:26.0, name:iPhone 16e }
+{ platform:iOS, arch:arm64, id:00008140-001C581C362A801C, name:iPhone }
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (1 target)
+    Target 'QaBuddy' in project 'QaBuddy' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/momc --dry-run --action generate --swift-version 5.0 --sdkroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk --iphoneos-deployment-target 18.5 --module QaBuddy /Volumes/X10 Pro/Projects/QaBuddy/QaBuddy/QaBuddy/QaBuddy.xcdatamodeld /Users/kevinhudson/Library/Developer/Xcode/DerivedData/QaBuddy-cswpzmnncoznkkehudndixecmvzv/Build/Intermediates.noindex/QaBuddy.build/Debug-iphoneos/QaBuddy.build/DerivedSources/CoreDataGenerated/QaBuddy
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+Build description signature: 40dfae2fec05ab2f7193518ba8b4f444
+Build description path: /Users/kevinhudson/Library/Developer/Xcode/DerivedData/QaBuddy-cswpzmnncoznkkehudndixecmvzv/Build/Intermediates.noindex/XCBuildData/40dfae2fec05ab2f7193518ba8b4f444.xcbuilddata
+/Volumes/X10 Pro/Projects/QaBuddy/QaBuddy/QaBuddy.xcodeproj: error: Provisioning profile "iOS Team Provisioning Profile: com.kevinhudson.QaBuddy" doesn't include the currently selected device "Kevin’s Mac mini" (identifier 00006020-001C60491ED3C01E). (in target 'QaBuddy' from project 'QaBuddy')
+** BUILD FAILED **
+
+
+The following build commands failed:
+	Building project QaBuddy with scheme QaBuddy and configuration Debug
+(1 failure)
