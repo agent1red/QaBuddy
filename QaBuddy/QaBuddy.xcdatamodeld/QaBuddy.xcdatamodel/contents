@@ -43,12 +43,12 @@
         <attribute name="itemDescription" optional="YES" attributeType="String"/>
         <attribute name="irm" optional="YES" attributeType="String"/>
         <attribute name="partNumber" optional="YES" attributeType="String"/>
-        <attribute name="location" attributeType="String"/>
+        <attribute name="location" optional="YES" attributeType="String"/>
         <attribute name="xCoordinate" optional="YES" attributeType="String"/>
         <attribute name="yCoordinate" optional="YES" attributeType="String"/>
         <attribute name="zCoordinate" optional="YES" attributeType="String"/>
-        <attribute name="issue" attributeType="String"/>
-        <attribute name="shouldBe" attributeType="String"/>
+        <attribute name="issue" optional="YES" attributeType="String"/>
+        <attribute name="shouldBe" optional="YES" attributeType="String"/>
         <attribute name="photoIds" optional="YES" attributeType="String"/>
         <attribute name="status" attributeType="String"/>
         <attribute name="createdDate" attributeType="Date" usesScalarValueType="NO"/>
