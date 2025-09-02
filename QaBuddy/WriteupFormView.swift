@@ -39,12 +39,13 @@ struct WriteupFormView: View {
     @State private var showingCoordinateToggle = false
     @State private var isAutoSaving = false
 
-    // Auto-save functionality with validation gates
-    @State private var autoSaveTimer: Timer?
+    // BATTERY OPTIMIZATION: Debounced auto-save instead of continuous timer
+    @State private var saveWorkItem: DispatchWorkItem?
     @State private var hasUnsavedChanges = false
     @State private var consecutiveSaveFailures = 0
     @State private var autoSavePausedUntil: Date?
     @State private var lastSaveTimestamp: Date?
+    private let saveDebounceInterval: TimeInterval = 2.0  // Reduced from 30s to 2s for better UX
 
     // Draft cache to prevent constant DB queries
     @State private var cachedDraftId: UUID?
@@ -293,7 +294,11 @@ struct WriteupFormView: View {
                     coordinateSystem: coordinateSystemManager.currentSystem,
                     validationError: validationErrors[config.fieldName],
                     formData: $formData
-                )
+                ) {
+                    // BATTERY OPTIMIZATION: Trigger debounced save on form data changes
+                    hasUnsavedChanges = true
+                    scheduleAutoSave()
+                }
             } header: {
                 Text(formFieldLabel(for: config.fieldName))
             }
@@ -373,20 +378,37 @@ struct WriteupFormView: View {
         }
     }
 
+    /// BATTERY OPTIMIZATION: Replace continuous timer with debounced auto-save
     private func setupAutoSave() {
-        autoSaveTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { _ in
-            // Swift 6: Prevent infinite loop - only auto-save if valid and not paused
-            if hasUnsavedChanges && canAutoSaveDraft() && !isAutoSavePaused() {
-                Task { @MainActor in
-                    await saveDraftSilently()
-                }
-            }
-        }
+        // No timer setup needed - we use debounced saves instead
+        Logger.info("♻️ Auto-save configured with debounced saving (2s interval instead of continuous 30s)")
     }
 
+    /// BATTERY OPTIMIZATION: Cleanup DispatchWorkItem instead of timer
     private func cleanupAutoSave() {
-        autoSaveTimer?.invalidate()
-        autoSaveTimer = nil
+        saveWorkItem?.cancel()
+        saveWorkItem = nil
+    }
+
+    /// BATTERY OPTIMIZATION: Schedule debounced save instead of immediate save
+    private func scheduleAutoSave() {
+        // Cancel any pending save
+        saveWorkItem?.cancel()
+
+        // Only schedule if there are unsaved changes and we can auto-save
+        guard hasUnsavedChanges && canAutoSaveDraft() && !isAutoSavePaused() else {
+            return
+        }
+
+        // Schedule new save with debounce
+        let workItem = DispatchWorkItem {
+            Task { @MainActor in
+                await saveDraftSilently()
+            }
+        }
+
+        saveWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + saveDebounceInterval, execute: workItem)
     }
 
     private func loadExistingDraft() {
@@ -892,6 +914,9 @@ struct DynamicFieldView: View {
     let validationError: String?
     @Binding var formData: WriteupFormData
 
+    /// BATTERY OPTIMIZATION: Callback to schedule debounced auto-save when form data changes
+    var onFormDataChanged: (() -> Void)?
+
     var body: some View {
         VStack(alignment: .leading) {
             // Field input
@@ -1039,3 +1064,4 @@ extension String {
 // 5. Create bulk photo attachment workflow
 // 6. Add form export functionality
 // 7. Implement write-up status change notifications
+

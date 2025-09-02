@@ -31,6 +31,12 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     private var captureDevice: AVCaptureDevice?
     private let audioSession = AVAudioSession.sharedInstance()
 
+    // BATTERY OPTIMIZATION: Intelligent session management
+    private var idleTimer: Timer?
+    private let idleTimeout: TimeInterval = 30.0  // 30 seconds idle timeout
+    private var resumeButton: UIButton?
+    private var cameraPausedForIdle = false
+
     // Volume button detection
     private var notificationObserver: NSObjectProtocol?
     private var volumeDetectionEnabled = false
@@ -354,12 +360,17 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         }
     }
 
+    // BATTERY OPTIMIZATION: Intelligent camera session management
     private func startCamera() {
         if !captureSession.isRunning {
             DispatchQueue.global(qos: .background).async { [weak self] in
                 self?.captureSession.startRunning()
                 DispatchQueue.main.async {
                     self?.updateVideoOrientation()
+                    // Reset idle state and start idle timer
+                    self?.cameraPausedForIdle = false
+                    self?.hideResumeButton()
+                    self?.startIdleTimer()
                 }
             }
         }
@@ -369,9 +380,25 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
         if captureSession.isRunning {
             captureSession.stopRunning()
         }
+        // Clean up idle timer
+        stopIdleTimer()
     }
 
     private func capturePhoto(volumeTriggered: Bool = false) {
+        // BATTERY OPTIMIZATION: Reset idle timer on any camera activity
+        startIdleTimer()
+
+        // Resume camera if it's paused for idle
+        if cameraPausedForIdle && !captureSession.isRunning {
+            DispatchQueue.global(qos: .background).async { [weak self] in
+                self?.captureSession.startRunning()
+                DispatchQueue.main.async {
+                    self?.cameraPausedForIdle = false
+                    self?.hideResumeButton()
+                }
+            }
+        }
+
         // Throttle rapid successive captures
         let now = Date()
         if inFlightCapture {
@@ -422,6 +449,109 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             flashView.alpha = 0
         }) { _ in
             flashView.removeFromSuperview()
+        }
+    }
+
+    // MARK: - BATTERY OPTIMIZATION: Idle Timer Management
+
+    /// Start or reset the idle timer that will pause camera if inactive
+    private func startIdleTimer() {
+        // Cancel existing timer
+        idleTimer?.invalidate()
+
+        // Start new timer
+        idleTimer = Timer.scheduledTimer(withTimeInterval: idleTimeout, repeats: false) { [weak self] _ in
+            self?.pauseCameraForIdle()
+        }
+    }
+
+    /// Stop the idle timer (when view disappears or app backgrounded)
+    private func stopIdleTimer() {
+        idleTimer?.invalidate()
+        idleTimer = nil
+    }
+
+    /// Pause camera session when idle timeout reached
+    private func pauseCameraForIdle() {
+        guard captureSession.isRunning, !cameraPausedForIdle else { return }
+
+        Logger.info("⏸️ Camera paused for idle - stopping capture session to save battery")
+
+        // Stop the camera session
+        captureSession.stopRunning()
+        cameraPausedForIdle = true
+
+        // Show resume button
+        showResumeButton()
+
+        // Important: Keep idle timer invalidated while paused
+        stopIdleTimer()
+    }
+
+    /// Show a resume button when camera is paused
+    private func showResumeButton() {
+        guard resumeButton == nil else { return }
+
+        let button = UIButton(type: .system)
+        button.setTitle("Tap to Resume Camera", for: .normal)
+        button.setTitleColor(.white, for: .normal)
+        button.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        button.layer.cornerRadius = 25
+        button.clipsToBounds = true
+        button.addTarget(self, action: #selector(resumeCamera), for: .touchUpInside)
+
+        view.addSubview(button)
+        resumeButton = button
+
+        // Position in center of view
+        button.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            button.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            button.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
+            button.heightAnchor.constraint(equalToConstant: 50)
+        ])
+
+        // Fade in animation
+        button.alpha = 0
+        UIView.animate(withDuration: 0.3) {
+            button.alpha = 1.0
+        }
+    }
+
+    /// Hide the resume button
+    private func hideResumeButton() {
+        guard let button = resumeButton else { return }
+
+        UIView.animate(withDuration: 0.3, animations: {
+            button.alpha = 0
+        }) { _ in
+            button.removeFromSuperview()
+            self.resumeButton = nil
+        }
+    }
+
+    /// Resume camera when user wants to start capturing again
+    @objc private func resumeCamera() {
+        guard cameraPausedForIdle else { return }
+
+        Logger.info("▶️ Resuming camera from idle pause")
+
+        // Hide resume button
+        hideResumeButton()
+
+        // Start camera and idle timer
+        if !captureSession.isRunning {
+            DispatchQueue.global(qos: .background).async { [weak self] in
+                self?.captureSession.startRunning()
+                DispatchQueue.main.async {
+                    self?.cameraPausedForIdle = false
+                    self?.startIdleTimer()
+                }
+            }
+        } else {
+            cameraPausedForIdle = false
+            startIdleTimer()
         }
     }
 
