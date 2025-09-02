@@ -53,6 +53,11 @@ final class TemplateManager: ObservableObject {
         }
     }
 
+    /// Get template by ID for stable view references
+    func getTemplate(byId templateId: UUID) -> InspectionTemplate? {
+        return templates.first { $0.id == templateId }
+    }
+
     /// Ensure built-in templates exist in Core Data
     private func ensureBuiltInTemplates() async {
         var hasChanges = false

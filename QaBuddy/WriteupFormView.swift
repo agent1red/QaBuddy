@@ -14,14 +14,20 @@ import Combine
 import UIKit
 
 struct WriteupFormView: View {
-    @ObservedObject var template: InspectionTemplate
+    // PERFORMANCE FIX: Use stable identifier instead of @ObservedObject to prevent re-creation
+    let templateId: UUID
+    private var template: InspectionTemplate? {
+        // Computed property accesses singletons but doesn't cause view reconstruction
+        return TemplateManager.shared.getTemplate(byId: templateId)
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.managedObjectContext) private var context
 
-    // Manager integrations
-    @StateObject private var sessionManager = SessionManager.shared
-    @StateObject private var templateManager = TemplateManager.shared
-    @StateObject private var coordinateSystemManager = CoordinateSystemManager.shared
+    // PERFORMANCE FIX: Use singletons directly instead of @StateObject to prevent re-creation
+    private var sessionManager: SessionManager { SessionManager.shared }
+    private var templateManager: TemplateManager { TemplateManager.shared }
+    private var coordinateSystemManager: CoordinateSystemManager { CoordinateSystemManager.shared }
 
     // Form state management
     @State private var writeup: PUWriteup
@@ -48,13 +54,14 @@ struct WriteupFormView: View {
 
     // Load/create writeup on appear
     init(template: InspectionTemplate, selectedTab: Binding<Int?>? = nil) {
-        self.template = template
+        // PERFORMANCE FIX: Use stable template ID instead of passing object
+        self.templateId = template.id ?? UUID()
         self._selectedTab = State(initialValue: selectedTab?.wrappedValue)
 
-        // Check cache first for faster lookup
+        // Check cache first for faster lookup - SILENTLY (avoid console spam)
         if let cachedDraft = Self.getCachedDraftFor(template: template) {
             self._writeup = State(initialValue: cachedDraft)
-            print("⚡ Using cached draft: \(cachedDraft.id?.uuidString ?? "unknown")")
+            // Removed excessive logging - was causing console spam on every reference
         } else {
             // Check database for existing draft
             let context = PersistenceController.shared.container.viewContext
@@ -274,8 +281,12 @@ struct WriteupFormView: View {
     }
 
     private var dynamicFieldsSection: some View {
+        guard let template = template else {
+            return AnyView(Text("Loading template..."))
+        }
+
         let fieldConfigs = template.decodedFieldConfigurations.filter { $0.visibility != .hidden }
-        return ForEach(fieldConfigs, id: \.fieldName) { config in
+        return AnyView(ForEach(fieldConfigs, id: \.fieldName) { config in
             Section {
                 DynamicFieldView(
                     config: config,
@@ -286,7 +297,7 @@ struct WriteupFormView: View {
             } header: {
                 Text(formFieldLabel(for: config.fieldName))
             }
-        }
+        })
     }
 
     private var validationSection: some View {
@@ -346,6 +357,11 @@ struct WriteupFormView: View {
     }
 
     private func validateAndSaveFinal() {
+        guard let template = template else {
+            print("❌ Cannot validate: template not loaded")
+            return
+        }
+
         // Full validation before final save
         validationErrors = ValidationEngine().validate(formData, template: template)
         if validationErrors.isEmpty {
@@ -417,7 +433,7 @@ struct WriteupFormView: View {
 
                 await MainActor.run {
                     selectedPhotos.formUnion(Set(photos))
-                    print("✅ Loaded \(photos.count) existing photos for draft")
+                    // Reduced console spam - don't log every photo load
                 }
             } catch {
                 print("❌ Error loading existing photos: \(error)")
