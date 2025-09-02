@@ -44,7 +44,7 @@ struct TemplateBuilderView: View {
                                 .foregroundColor(.secondary)
 
                             TextField("e.g., 'Daily Inspection', 'FOD Checklist'", text: $templateName)
-                                .onChange(of: templateName) { _ in
+                                .onChange(of: templateName) {
                                     hasUnsavedChanges = true
                                     updateUnsavedChanges()
                                 }
@@ -104,7 +104,7 @@ struct TemplateBuilderView: View {
                                 }
                             }
                             .padding(.vertical, 8)
-                            .onChange(of: templateType) { newValue in
+                            .onChange(of: templateType) { _, newValue in
                                 // Ensure changes are properly registered
                                 hasUnsavedChanges = true
                                 updateUnsavedChanges()
