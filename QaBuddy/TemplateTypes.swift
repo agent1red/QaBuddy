@@ -12,7 +12,7 @@ enum FieldVisibility: String, Codable, Sendable {
 } 
 
 /// Template field configuration struct
-struct TemplateFieldConfiguration: Codable, Sendable {
+struct TemplateFieldConfiguration: Codable, Sendable, Equatable {
     public let fieldName: String
     public var visibility: FieldVisibility
     public var defaultValue: String?

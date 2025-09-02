@@ -104,6 +104,16 @@ struct ContentView: View {
                 }
             }
             .tag(2)
+
+            // Templates View - Tab 3
+            TemplateLibraryView()
+                .tabItem {
+                    VStack {
+                        Image(systemName: "clipboard")
+                        Text("Templates")
+                    }
+                }
+                .tag(3)
         }
         .environment(\.managedObjectContext, persistenceController.container.viewContext)
         .accentColor(.blue) // Aviation-appropriate accent color

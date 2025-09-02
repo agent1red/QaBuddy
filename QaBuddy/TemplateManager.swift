@@ -432,7 +432,7 @@ extension InspectionTemplate {
     /// Computed property to get template type display string
     var templateTypeDisplay: String {
         switch templateType {
-        case "PU": return "Positive Report"
+        case "PU": return "Pickup"
         case "NC": return "Non-Conformance"
         default: return templateType ?? "Unknown"
         }
