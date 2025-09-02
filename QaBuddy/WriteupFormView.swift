@@ -38,6 +38,10 @@ struct WriteupFormView: View {
     @State private var hasUnsavedChanges = false
     @State private var consecutiveSaveFailures = 0
     @State private var autoSavePausedUntil: Date?
+    @State private var lastSaveTimestamp: Date?
+
+    // Draft cache to prevent constant DB queries
+    @State private var cachedDraftId: UUID?
 
     // Navigation state
     @State private var selectedTab: Int? = nil // For callback navigation
@@ -47,18 +51,40 @@ struct WriteupFormView: View {
         self.template = template
         self._selectedTab = State(initialValue: selectedTab?.wrappedValue)
 
-        // Initialize with a new PUWriteup or load existing
-        let newWriteup = PUWriteup(context: PersistenceController.shared.container.viewContext)
-        newWriteup.id = UUID()
-        // CRITICAL: Set required itemId to fix validation failures - Swift 6 pattern
-        newWriteup.itemId = Int64(Date().timeIntervalSince1970) // Use timestamp as unique ID
-        newWriteup.template = template
-        newWriteup.status = "draft"
-        newWriteup.createdDate = Date()
-        // Use shared singletons directly in init to avoid @StateObject access before initialization
-        newWriteup.coordinateSystem = CoordinateSystemManager.shared.isVelocitySystem ? "Velocity" : "CMES"
-        newWriteup.session = SessionManager.shared.activeSession
-        self._writeup = State(initialValue: newWriteup)
+        // Check cache first for faster lookup
+        if let cachedDraft = Self.getCachedDraftFor(template: template) {
+            self._writeup = State(initialValue: cachedDraft)
+            print("⚡ Using cached draft: \(cachedDraft.id?.uuidString ?? "unknown")")
+        } else {
+            // Check database for existing draft
+            let context = PersistenceController.shared.container.viewContext
+            let existingDraft = Self.findExistingDraft(template: template, context: context)
+
+            if let draft = existingDraft {
+                // Cache the draft for future lookups
+                Self.cacheDraft(draft, forTemplate: template)
+                // Use existing draft
+                self._writeup = State(initialValue: draft)
+                print("📝 Using existing draft from database")
+            } else {
+                // Create new draft only if none exists
+                let newWriteup = PUWriteup(context: context)
+                newWriteup.id = UUID()
+                // CRITICAL: Set required itemId to fix validation failures - Swift 6 pattern
+                newWriteup.itemId = Int64(Date().timeIntervalSince1970) // Use timestamp as unique ID
+                newWriteup.template = template
+                newWriteup.status = "draft"
+                newWriteup.createdDate = Date()
+                // Use shared singletons directly in init to avoid @StateObject access before initialization
+                newWriteup.coordinateSystem = CoordinateSystemManager.shared.isVelocitySystem ? "Velocity" : "CMES"
+                newWriteup.session = SessionManager.shared.activeSession
+
+                // Cache the new draft
+                Self.cacheDraft(newWriteup, forTemplate: template)
+                self._writeup = State(initialValue: newWriteup)
+                print("🆕 Created and cached new draft")
+            }
+        }
     }
 
     var body: some View {
@@ -369,9 +395,34 @@ struct WriteupFormView: View {
         formData.issue = writeup.issue ?? ""
         formData.shouldBe = writeup.shouldBe ?? ""
 
-        // Load existing photo attachments
-        // TODO: Load photos by IDs and populate selectedPhotos
-        // let photoIds = writeup.photoIds?.components(separatedBy: ",") ?? []
+        // Load existing photo attachments from writeup
+        loadExistingPhotoAttachments()
+    }
+
+    private func loadExistingPhotoAttachments() {
+        guard let photoIdsString = writeup.photoIds, !photoIdsString.isEmpty else { return }
+
+        let photoIds = photoIdsString.components(separatedBy: ",").filter { !$0.isEmpty }
+
+        // Fetch photos by IDs on background thread and update selectedPhotos on main thread
+        Task {
+            do {
+                let context = PersistenceController.shared.container.viewContext
+                let photos = try await context.perform {
+                    let fetchRequest = Photo.fetchRequest()
+                    // SWIFT 6 FIX: Use string comparison for UUID field instead of UUID object conversion
+                    fetchRequest.predicate = NSPredicate(format: "id in %@", photoIds)
+                    return try context.fetch(fetchRequest)
+                }
+
+                await MainActor.run {
+                    selectedPhotos.formUnion(Set(photos))
+                    print("✅ Loaded \(photos.count) existing photos for draft")
+                }
+            } catch {
+                print("❌ Error loading existing photos: \(error)")
+            }
+        }
     }
 
     private func saveDraftSilently() async {
@@ -387,17 +438,25 @@ struct WriteupFormView: View {
         await MainActor.run {
             updateWriteupFromForm()
             writeup.status = "draft"
-            // Removed lastModified (not present in model)
+            // Core Data @FetchRequest will handle UI updates automatically
         }
 
         do {
-            try await context.perform {
-                try context.save()
-            }
+            // Use direct save on main thread context instead of context.perform for immediate UI updates
+            try context.save()
             // Swift 6: Reset failure counter on successful save
             consecutiveSaveFailures = 0
             autoSavePausedUntil = nil
-            print("✅ Auto-saved writeup draft")
+            print("✅ Auto-saved writeup draft (immediatelive UI updates enabled)")
+
+            // SWIF των6 FIX: Proper notification posting with explicit type handling
+            NotificationCenter.default.post(
+                name: NSNotification.Name.NSManagedObjectContextObjectsDidChange,
+                object: context,
+                userInfo: [
+                    NSUpdatedObjectsKey: [writeup as Any]
+                ] as [AnyHashable: Any]
+            )
         } catch {
             // Swift 6: Track consecutive failures to prevent infinite loop
             consecutiveSaveFailures += 1
@@ -497,6 +556,92 @@ struct WriteupFormView: View {
             autoSavePausedUntil = nil
             print("🔄 Auto-save retry mechanism reset")
         }
+    }
+
+    // MARK: - Draft Management
+
+    /// Static cache for draft objects to prevent repeated database queries
+    static private var draftCache = [String: PUWriteup]()
+
+    /// Get cached draft for template
+    static private func getCachedDraftFor(template: InspectionTemplate) -> PUWriteup? {
+        let cacheKey = Self.makeCacheKey(template: template)
+        return draftCache[cacheKey]
+    }
+
+    /// Cache draft for template
+    static private func cacheDraft(_ draft: PUWriteup, forTemplate template: InspectionTemplate) {
+        let cacheKey = Self.makeCacheKey(template: template)
+        draftCache[cacheKey] = draft
+        print("💾 Cached draft \(draft.id?.uuidString ?? "unknown") for cache key: \(cacheKey)")
+    }
+
+    /// Clear all cached drafts (call when session changes)
+    static func clearDraftCache() {
+        draftCache.removeAll()
+        print("🧹 Cleared draft cache")
+    }
+
+    /// Make cache key from template and session
+    private static func makeCacheKey(template: InspectionTemplate) -> String {
+        let templateId = template.id?.uuidString ?? "unknown-template"
+        let sessionId = SessionManager.shared.activeSession?.id?.uuidString ?? "unknown-session"
+        return "\(templateId)-\(sessionId)"
+    }
+
+    /// Find existing draft for the same template and session combination with detailed debugging
+    private static func findExistingDraft(template: InspectionTemplate, context: NSManagedObjectContext) -> PUWriteup? {
+        let templateId = template.id?.uuidString ?? ""
+        let sessionId = SessionManager.shared.activeSession?.id?.uuidString ?? ""
+
+        print("🔍 Searching for draft with:")
+        print("    TemplateID: \(templateId.isEmpty ? "EMPTY" : templateId)")
+        print("    SessionID: \(sessionId.isEmpty ? "EMPTY" : sessionId)")
+        print("    Status: draft")
+
+        // Check if IDs are valid
+        guard !templateId.isEmpty && !sessionId.isEmpty else {
+            print("❌ Cannot search - missing template or session ID")
+            return nil
+        }
+
+        let fetchRequest = PUWriteup.fetchRequest()
+
+        // SWIFT 6 FIX: Use string comparisons instead of UUID objects for CVarArg compatibility
+        let predicates = [
+            NSPredicate(format: "template.id == %@", templateId),
+            NSPredicate(format: "session.id == %@", sessionId),
+            NSPredicate(format: "status == %@", "draft")
+        ]
+
+        fetchRequest.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+        fetchRequest.fetchLimit = 5 // Get up to 5 to debug duplicates
+
+        do {
+            let results = try context.fetch(fetchRequest)
+            print("🔍 Found \(results.count) matching drafts in database")
+
+            for (index, draft) in results.enumerated() {
+                print("    [\(index)] Draft ID: \(draft.id?.uuidString ?? "no-id") - Template: \(draft.template?.id?.uuidString ?? "no-template") - Session: \(draft.session?.id?.uuidString ?? "no-session")")
+            }
+
+            if let existingDraft = results.first {
+                print("✅ Using first draft: \(existingDraft.id?.uuidString ?? "unknown")")
+
+                // Clean up extra duplicates if they exist
+                if results.count > 1 {
+                    print("⚠️  Found \(results.count) duplicate drafts - should consolidate")
+                }
+
+                return existingDraft
+            }
+        } catch {
+            print("❌ Error finding existing draft: \(error)")
+            print("    Error details: \(error.localizedDescription)")
+        }
+
+        print("📝 No existing draft found in database")
+        return nil
     }
 }
 

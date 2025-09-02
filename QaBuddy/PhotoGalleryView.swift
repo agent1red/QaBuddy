@@ -8,17 +8,20 @@
 import SwiftUI
 import CoreData
 
-
+/// Enhanced Photo Gallery with integrated write-up management
+/// Supports photos, drafts, and complete write-ups with smart filtering
 struct PhotoGalleryView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @ObservedObject var sessionManager = SessionManager.shared
 
-    // State management
-    @State private var photos: [Photo] = []
-    @State private var isLoading = false
-    @State private var viewMode: ViewMode = .grid
+    // Content filtering
+    @State private var contentType: ContentType = .all
     @State private var selectedPhoto: Photo? = nil
+    @State private var selectedWriteup: PUWriteup? = nil
     @State private var showingSessionHistory = false
+
+    // UI State
+    @State private var viewMode: ViewMode = .grid
 
     // Deletion management
     @State private var deletionManager: PhotoDeletionManager
@@ -28,19 +31,56 @@ struct PhotoGalleryView: View {
     @State private var selectedPhotosForBulkDelete: Set<NSObject> = []
     @State private var isBulkSelectionMode = false
 
+    // Write-up navigation
+    @State private var showingWriteupForm = false
+    @State private var writeupToResume: PUWriteup? = nil
+
     // Managers
     private let photoManager = PhotoManager()
-    
-    // Delayed loading indicator control
-    @State private var showLoadingOverlay = false
 
     // Session title for navigation bar
     @State private var sessionTitle: String = "All Photos"
+
+    // Dynamic fetch requests responsive to UI changes
+    @FetchRequest var allPhotos: FetchedResults<Photo>
+    @FetchRequest var allWriteups: FetchedResults<PUWriteup>
+
+    // Computed properties for legacy compatibility
+    private var photos: [Photo] {
+        Array(allPhotos)
+    }
 
     init() {
         _deletionManager = State(initialValue: PhotoDeletionManager(
             context: PersistenceController.shared.container.viewContext
         ))
+
+        // Initialize fetch requests (fetch broadly; we'll filter by session in-memory)
+        let photoRequest = Photo.fetchRequest()
+        photoRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+        self._allPhotos = FetchRequest(fetchRequest: photoRequest, animation: .default)
+
+        let writeupRequest = PUWriteup.fetchRequest()
+        writeupRequest.sortDescriptors = [NSSortDescriptor(key: "createdDate", ascending: false)]
+        self._allWriteups = FetchRequest(fetchRequest: writeupRequest, animation: .default)
+    }
+
+    enum ContentType: String, CaseIterable, Identifiable {
+        case all = "All"
+        case photos = "Photos"
+        case writeups = "Write-ups"
+        case drafts = "Drafts"
+
+        var id: Self { self }
+
+        var icon: String {
+            switch self {
+            case .all: return "square.stack.3d.up"
+            case .photos: return "photo.stack"
+            case .writeups: return "doc.text"
+            case .drafts: return "pencil.circle"
+            }
+        }
     }
 
     enum ViewMode {
@@ -50,7 +90,7 @@ struct PhotoGalleryView: View {
 
     private var photoCountDisplay: String {
         // Get unique sequence numbers to show actual number of displayed photos
-        let uniqueSequences = Set(photos.map { $0.sequenceNumber })
+        let uniqueSequences = Set(filteredPhotos.map { $0.sequenceNumber })
         let count = uniqueSequences.count
 
         switch count {
@@ -67,70 +107,192 @@ struct PhotoGalleryView: View {
         GridItem(.flexible(), spacing: 4)
     ]
 
-    // MARK: - Computed Views
+    // MARK: - Content Filtering and Display
+
+    private var filteredPhotos: [Photo] {
+        // Apply session filtering first
+        let sessionFiltered: [Photo] = {
+            if let sessionId = sessionManager.activeSessionIdString {
+                return Array(allPhotos).filter { $0.sessionID == sessionId }
+            } else {
+                return Array(allPhotos)
+            }
+        }()
+
+        switch contentType {
+        case .all, .photos:
+            // Get unique photos by sequence number
+            return Dictionary(grouping: sessionFiltered) { $0.sequenceNumber }
+                .compactMapValues { $0.first }
+                .sorted { $0.key < $1.key }
+                .map { $0.value }
+        case .writeups, .drafts:
+            // Only show photos attached to write-ups (also filtered by session)
+            let writeupPhotoIds = getAttachedPhotoIds()
+            return sessionFiltered.filter { photo in
+                guard let photoId = photo.id?.uuidString else { return false }
+                return writeupPhotoIds.contains(photoId)
+            }
+        }
+    }
+
+    private var filteredWriteups: [PUWriteup] {
+        // Apply session filtering first
+        let sessionFiltered: [PUWriteup] = {
+            if let sessionIdString = sessionManager.activeSessionIdString,
+               let sessionUUID = UUID(uuidString: sessionIdString) {
+                return Array(allWriteups).filter { $0.session?.id == sessionUUID }
+            } else {
+                return Array(allWriteups)
+            }
+        }()
+
+        switch contentType {
+        case .all:
+            return sessionFiltered.sorted { ($0.createdDate ?? Date()) > ($1.createdDate ?? Date()) }
+        case .writeups:
+            return sessionFiltered.filter { $0.status != "draft" }.sorted { ($0.createdDate ?? Date()) > ($1.createdDate ?? Date()) }
+        case .drafts:
+            return sessionFiltered.filter { $0.status == "draft" }.sorted { ($0.createdDate ?? Date()) > ($1.createdDate ?? Date()) }
+        case .photos:
+            return []
+        }
+    }
+
+    private func getAttachedPhotoIds() -> Set<String> {
+        var photoIds = Set<String>()
+        // Limit to session-filtered writeups to avoid scanning all
+        let writeups = filteredWriteups
+        for writeup in writeups {
+            if let photoIdsString = writeup.photoIds {
+                let ids = photoIdsString.components(separatedBy: ",").filter { !$0.isEmpty }
+                photoIds.formUnion(ids)
+            }
+        }
+        return photoIds
+    }
+
+    private var contentTypePicker: some View {
+        Picker("Content Type", selection: $contentType) {
+            ForEach(ContentType.allCases, id: \.self) { type in
+                Label(type.rawValue, systemImage: type.icon)
+                    .tag(type as ContentType)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
 
     private var galleryContent: some View {
-        Group {
-            if viewMode == .grid {
-                ScrollView {
-                    LazyVGrid(columns: gridColumns, spacing: 4) {
-                        // Only show one photo per unique sequence number
-                        let uniquePhotos = Dictionary(grouping: photos) { $0.sequenceNumber }
-                            .compactMapValues { $0.first }
-                            .sorted { $0.key < $1.key }
-                            .map { $0.value }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // Show write-ups first (when applicable)
+                if contentType == .all || contentType == .writeups || contentType == .drafts {
+                    let writeups = filteredWriteups
+                    if !writeups.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(contentType == .drafts ? "DRAFTS" : "WRITE-UPS")
+                                .font(.footnote)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal)
 
-                        ForEach(uniquePhotos, id: \.id) { photo in
-                            PhotoGridItem(
-                                photo: photo,
-                                isBulkSelectionMode: isBulkSelectionMode,
-                                isSelected: selectedPhotosForBulkDelete.contains(photo),
-                                onSelectionToggle: { togglePhotoSelection(photo) },
-                                onDeleteSingle: { confirmDelete(for: photo) },
-                                onAnnotationRequested: {
-                                    selectedPhoto = photo
-                                    // Navigate to detail view to trigger annotation
-                                }
-                            )
-                            .onTapGesture {
-                                if isBulkSelectionMode {
-                                    togglePhotoSelection(photo)
-                                } else {
-                                    selectedPhoto = photo
-                                }
+                            ForEach(writeups, id: \.id) { writeup in
+                                WriteupCard(writeup: writeup)
+                                    .onTapGesture {
+                                        resumeWriteup(writeup)
+                                    }
                             }
                         }
                     }
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 8)
                 }
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 1) {
-                        ForEach(photos, id: \.id) { photo in
-                            PhotoListItem(photo: photo)
-                                .onTapGesture {
-                                    selectedPhoto = photo
+
+                // Show photos (when applicable)
+                if contentType == .all || contentType == .photos {
+                    let photos = filteredPhotos
+                    if !photos.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("PHOTOS")
+                                .font(.footnote)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal)
+
+                            // Photo grid layout
+                            LazyVGrid(columns: gridColumns, spacing: 4) {
+                                ForEach(photos, id: \.id) { photo in
+                                    PhotoGridItem(
+                                        photo: photo,
+                                        isBulkSelectionMode: isBulkSelectionMode,
+                                        isSelected: selectedPhotosForBulkDelete.contains(photo),
+                                        onSelectionToggle: { togglePhotoSelection(photo) },
+                                        onDeleteSingle: { confirmDelete(for: photo) },
+                                        onAnnotationRequested: {
+                                            selectedPhoto = photo
+                                        }
+                                    )
+                                    .onTapGesture {
+                                        if isBulkSelectionMode {
+                                            togglePhotoSelection(photo)
+                                        } else {
+                                            selectedPhoto = photo
+                                        }
+                                    }
                                 }
+                            }
+                            .padding(.horizontal, 4)
                         }
                     }
-                    .padding(.vertical, 8)
+                }
+
+                // Empty state
+                let hasAnyContent = !filteredPhotos.isEmpty || !filteredWriteups.isEmpty
+                if !hasAnyContent {
+                    emptyContentView
                 }
             }
+            .padding(.vertical, 8)
         }
     }
 
-    private var loadingOverlay: some View {
-        Group {
-            if showLoadingOverlay {
-                // Show loading spinner only if loading takes longer than 0.5 seconds to avoid flickering
-                ProgressView("Loading photos...")
-                    .progressViewStyle(.circular)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.black.opacity(0.1))
+    private var emptyContentView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: contentType.icon)
+                .font(.system(size: 48))
+                .foregroundColor(.secondary.opacity(0.3))
+
+            Text("No \(contentType.rawValue.lowercased()) found")
+                .font(.title3)
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+
+            if contentType == .drafts {
+                Text("Drafts will appear here when you save incomplete write-ups")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            } else {
+                Text("Start by taking photos or creating write-ups")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
             }
         }
+        .frame(maxHeight: .infinity)
     }
+
+    // MARK: - Write-up Management
+
+    private func resumeWriteup(_ writeup: PUWriteup) {
+        writeupToResume = writeup
+        showingWriteupForm = true
+        print("🗂️ Resuming write-up: \(writeup.template?.name ?? "Unknown")")
+    }
+
+
 
     private var toolbarItems: some ToolbarContent {
         Group {
@@ -233,9 +395,11 @@ struct PhotoGalleryView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
+            VStack(spacing: 0) {
+                // Modern SwiftUI Segmented Control with icons
+                contentTypePicker
+
                 galleryContent
-                loadingOverlay
             }
             .navigationTitle(sessionTitle)
             .navigationBarTitleDisplayMode(.inline)
@@ -251,6 +415,14 @@ struct PhotoGalleryView: View {
                     currentPhoto: photo,
                     selectedPhoto: $selectedPhoto
                 )
+            }
+            .sheet(isPresented: $showingWriteupForm, onDismiss: {
+                writeupToResume = nil
+            }) {
+                if let writeup = writeupToResume {
+                    // Resume existing write-up
+                    WriteupFormView(template: writeup.template!, selectedTab: nil)
+                }
             }
         }
         .alert("Delete Photo", isPresented: $showingDeleteConfirmation, presenting: photoToDelete) { photo in
@@ -273,24 +445,10 @@ struct PhotoGalleryView: View {
         } message: {
             Text("Are you sure you want to delete \(selectedPhotosForBulkDelete.count) \(selectedPhotosForBulkDelete.count == 1 ? "photo" : "photos")?\n\n**PERMANENT DELETION:** This will permanently delete all selected photo files and cannot be undone.")
         }
-
-        .task {
-            await refreshSessionTitle()
-            await loadPhotos()
-        }
-        .refreshable {
-            await refreshSessionTitle()
-            await loadPhotos()
-        }
-        .onReceive(sessionManager.objectWillChange) { _ in
-            Task {
-                await refreshSessionTitle()
-                await loadPhotos()
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             PhotoImageCache.shared.clearAllCaches()
         }
+        // @FetchRequest will auto-update on Core Data changes; no need to recreate the requests.
     }
 
     // MARK: - Bulk Selection Methods
@@ -322,9 +480,8 @@ struct PhotoGalleryView: View {
         do {
             try await deletionManager.deletePhotos(photosToDelete)
 
-            // Exit bulk selection mode and refresh
+            // Exit bulk selection mode (Core Data @FetchRequest will handle UI updates automatically)
             exitBulkSelectionMode()
-            await loadPhotos()
 
             print("✅ \(photosToDelete.count) photos deleted permanently")
         } catch {
@@ -344,9 +501,7 @@ struct PhotoGalleryView: View {
         do {
             try await deletionManager.deletePhoto(photo)
 
-            // Refresh photos after deletion
-            await loadPhotos()
-
+            // Core Data @FetchRequest will handle UI updates automatically
             print("✅ Photo \(photo.sequenceNumber) deleted permanently")
         } catch {
             print("❌ Error deleting photo: \(error)")
@@ -355,40 +510,10 @@ struct PhotoGalleryView: View {
 
 
 
-    private func loadPhotos() async {
-        // Start loading
-        isLoading = true
-        showLoadingOverlay = false
-
-        // Delay showing loading indicator if loading takes more than 0.5 seconds to avoid flickering UI
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            if isLoading {
-                showLoadingOverlay = true
-            }
-        }
-
-        do {
-            // Load photos based on session filtering
-            if let activeSessionId = sessionManager.activeSessionIdString {
-                // Load photos for active session only
-                photos = try photoManager.fetchPhotos(forSession: activeSessionId)
-            } else {
-                // No active session - show all photos
-                photos = try photoManager.fetchAllPhotos()
-            }
-        } catch {
-            print("❌ Error loading photos: \(error)")
-            photos = []
-        }
-        // Loading complete
-        isLoading = false
-        showLoadingOverlay = false
-    }
-
     // MARK: - Helper Methods
 
     private func getUniquePhotos() -> [Photo] {
-        Dictionary(grouping: photos) { $0.sequenceNumber }
+        Dictionary(grouping: filteredPhotos) { $0.sequenceNumber }
             .compactMapValues { $0.first }
             .map { $0.value }
     }
@@ -403,12 +528,112 @@ struct PhotoGalleryView: View {
             selectedPhotosForBulkDelete.formUnion(Set(uniquePhotos))
         }
     }
+}
 
-    private func refreshSessionTitle() async {
-        let info = await sessionManager.getCurrentSessionInfo()
-        await MainActor.run {
-            sessionTitle = (info == "No Active Session") ? "All Photos" : info
+// MARK: - Write-up Card Component
+
+struct WriteupCard: View {
+    let writeup: PUWriteup
+
+    @State private var attachedPhotos: [Photo] = []
+    @Environment(\.managedObjectContext) private var viewContext
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Status badge and Template Type
+            HStack {
+                // Draft badge if status is draft
+                if writeup.status == "draft" {
+                    HStack(spacing: 4) {
+                        Image(systemName: "pencil.circle.fill")
+                        Text("Draft")
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.orange.opacity(0.2))
+                    .foregroundColor(.orange)
+                    .clipShape(Capsule())
+                    .font(.caption)
+                }
+
+                Spacer()
+
+                // Template name
+                if let templateName = writeup.template?.name {
+                    Text(templateName)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            // Main Content Preview
+            VStack(alignment: .leading, spacing: 4) {
+                // Issue description (primary content)
+                if let issue = writeup.issue, !issue.isEmpty {
+                    Text(issue)
+                        .font(.headline)
+                        .lineLimit(2)
+                        .foregroundColor(.primary)
+                } else {
+                    Text("No issue description")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                        .italic()
+                }
+
+                // Location
+                if let location = writeup.location, !location.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "location.fill")
+                            .font(.caption)
+                        Text(location)
+                            .font(.subheadline)
+                    }
+                    .foregroundColor(.secondary)
+                }
+            }
+
+            // Photo Attachment Preview
+            if let photoIdsString = writeup.photoIds, !photoIdsString.isEmpty {
+                // Calculate photo count for display
+                let photoIds = photoIdsString.components(separatedBy: ",").filter { !$0.isEmpty }
+                let photoCount = photoIds.count
+
+                HStack(spacing: 8) {
+                    HStack {
+                        Image(systemName: "photo.stack.fill")
+                            .font(.caption)
+                        Text("\(photoCount) photo\(photoCount == 1 ? "" : "s")")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.secondary)
+
+                    Spacer()
+
+                    // Modified timestamp
+                    if let modifiedDate = writeup.createdDate {
+                        Text(modifiedDate.formatted(.relative(presentation: .named)))
+                            .font(.caption2)
+                            .foregroundColor(.secondary.opacity(0.8))
+                    }
+                }
+            } else {
+                // No photos attached - just show timestamp
+                HStack {
+                    Spacer()
+                    if let modifiedDate = writeup.createdDate {
+                        Text(modifiedDate.formatted(.relative(presentation: .named)))
+                            .font(.caption2)
+                            .foregroundColor(.secondary.opacity(0.8))
+                    }
+                }
+            }
         }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 2)
+        .contentShape(Rectangle())
     }
 }
 
