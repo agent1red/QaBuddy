@@ -414,6 +414,7 @@ final class TemplateManager: ObservableObject {
 @MainActor
 extension InspectionTemplate {
     /// Computed property to get decoded field configurations
+    /// Swift 6: STABLE ORDERING - Prevents UI shuffling by ensuring consistent field order
     var decodedFieldConfigurations: [TemplateFieldConfiguration] {
         guard let templateFields = self.fields as? Set<TemplateField> else { return [] }
 
@@ -426,7 +427,7 @@ extension InspectionTemplate {
                 suffix: field.suffix,
                 validation: field.validationPattern
             )
-        }
+        }.sorted { $0.fieldName < $1.fieldName }  // 🔑 CRITICAL: Deterministic ordering prevents shuffling
     }
 
     /// Computed property to get template type display string

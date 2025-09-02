@@ -35,7 +35,7 @@ struct PhotoMetadata {
 
 // MARK: - PhotoManager Class
 
-class PhotoManager: @unchecked Sendable {
+class PhotoManager: ObservableObject, @unchecked Sendable {
     private let context: NSManagedObjectContext
     private let photoStorage = PhotoStorage()
 

@@ -16,6 +16,8 @@ struct TemplateDetailView: View {
     @State private var duplicateName = ""
     @State private var stableFieldConfigurations: [TemplateFieldConfiguration] = []
     @State private var sessionTitle: String = ""
+    @State private var showingWriteupForm = false
+    @State private var selectedTab: Int? = nil // For navigation callback
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -230,6 +232,9 @@ struct TemplateDetailView: View {
         }, message: {
             Text("Enter a name for the duplicated template")
         })
+        .sheet(isPresented: $showingWriteupForm) {
+            WriteupFormView(template: template, selectedTab: $selectedTab)
+        }
         .alert("Delete Template", isPresented: $showingDeleteConfirmation, actions: {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
@@ -288,12 +293,9 @@ struct TemplateDetailView: View {
     // MARK: - Actions
 
     private func useTemplate() {
-        // Navigate to write-up creation form
-        // This will be implemented when WriteupFormView is created in Task 2
-        print("🗂️ Navigate to write-up form with template: \(template.name ?? "Unknown")")
-
-        // Close the detail view and navigate to the write-up form
-        // Implementation depends on navigation structure
+        // Present the write-up form in a sheet
+        print("🗂️ Presenting write-up form for template: \(template.name ?? "Unknown")")
+        showingWriteupForm = true
     }
 
     private func showDuplicateDialog() {
