@@ -15,6 +15,7 @@ struct TemplateDetailView: View {
     @State private var showingDuplicateAlert = false
     @State private var duplicateName = ""
     @State private var stableFieldConfigurations: [TemplateFieldConfiguration] = []
+    @State private var sessionTitle: String = ""
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -96,7 +97,7 @@ struct TemplateDetailView: View {
                 Section(header: Text("Session Integration")) {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Active Session: \(sessionManager.currentSessionInfo)")
+                            Text("Active Session: \(sessionTitle)")
                                 .font(.subheadline)
                                 .fontWeight(.medium)
 
@@ -243,6 +244,11 @@ struct TemplateDetailView: View {
             // Capture stable field configurations on view appear to prevent rapid recalculation
             // This fixes the rapid animation issue researched from SwiftUI/Core Data ForEach problems
             stableFieldConfigurations = template.decodedFieldConfigurations
+
+            // Refresh session info for accurate real-time data
+            Task {
+                await refreshSessionTitle()
+            }
         }
     }
 
@@ -314,6 +320,10 @@ struct TemplateDetailView: View {
         } else {
             print("❌ Failed to delete template")
         }
+    }
+
+    private func refreshSessionTitle() async {
+        sessionTitle = await sessionManager.getCurrentSessionInfo()
     }
 }
 
