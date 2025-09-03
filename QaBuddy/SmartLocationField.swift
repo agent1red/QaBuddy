@@ -320,24 +320,14 @@ struct SmartLocationField: View {
     private func getFilteredSuggestions() -> [LocationSuggestionEngine.LocationSuggestion] {
         let allSuggestions = engine.getSuggestions(for: zonePrefix)
 
-        print("🔍 DEBUG: Zone='\(zonePrefix)', All Suggestions=\(allSuggestions.count)")
-
         if userInput.isEmpty {
-            let result = Array(allSuggestions.prefix(maxSuggestions))
-            print("🔍 DEBUG: UserInput empty, returning \(result.count) suggestions (max=\(maxSuggestions))")
-            print("🔍 DEBUG: First 5 suggestions: \(result.prefix(5).map { $0.text })")
-            if result.count > 10 {
-                print("🔍 DEBUG: Last 5 suggestions: \(result.dropFirst(max(result.count - 5, 0)).map { $0.text })")
-            }
-            return result
+            return Array(allSuggestions.prefix(maxSuggestions))
         } else {
             let filtered = allSuggestions.filter { suggestion in
                 suggestion.text.localizedCaseInsensitiveContains(userInput) ||
                 userInput.localizedCaseInsensitiveContains(suggestion.text)
             }
-            let result = Array(filtered.prefix(maxSuggestions))
-            print("🔍 DEBUG: UserInput='\(userInput)', Filtered=\(filtered.count), Returning=\(result.count)")
-            return result
+            return Array(filtered.prefix(maxSuggestions))
         }
     }
 
@@ -358,11 +348,8 @@ struct SmartLocationField: View {
     }
 
     private func handleSuggestionSelected(_ suggestion: LocationSuggestionEngine.LocationSuggestion) {
-        print("🔍 HANDLER: Processing suggestion text='\(suggestion.text)', type='\(suggestion.type)', hasHelperText='\(suggestion.helperText != nil)'")  // Add this
-
         // Store the last selected suggestion for helper text
         lastSelectedSuggestion = suggestion
-        print("🔍 HANDLER: Stored suggestion='\(suggestion.text)' for helper text")  // Add this
 
         // Set the suggestion text - replace entire input, don't append
         let baseText = suggestion.text
@@ -370,12 +357,10 @@ struct SmartLocationField: View {
             // For suggestions that need additional input, just set the base text and add space
             userInput = baseText + " "
             isFieldFocused = true // Keep focus for additional input
-            print("🔍 HANDLER: Set userInput to '\(userInput)' for needsAdditionalInput=true")  // Add this
         } else {
             // For complete suggestions, set the final text and finalize
             userInput = baseText
             finalizeLocation()
-            print("🔍 HANDLER: Set userInput to '\(userInput)' for needsAdditionalInput=false")  // Add this
         }
 
         // Clear validation errors on selection
