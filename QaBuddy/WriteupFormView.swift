@@ -52,7 +52,6 @@ struct WriteupFormView: View {
 
     // Navigation state
     @State private var selectedTab: Int? = nil // For callback navigation
-    @State private var userLocationInput: String = ""
 
     // Load/create writeup on appear
     init(template: InspectionTemplate, selectedTab: Binding<Int?>? = nil) {
@@ -291,25 +290,14 @@ struct WriteupFormView: View {
         return AnyView(ForEach(fieldConfigs, id: \.fieldName) { config in
             Section {
                 if config.fieldName == "location" {
-                    InlineSmartLocationField(
-                        locationPrefix: locationPrefix,
-                        suggestions: getLocationSuggestions(for: locationPrefix),
-                        helperText: locationHelperText,
-                        placeholder: "Enter location",
-                        validationError: validationErrors["location"],
-                        userLocationInput: $userLocationInput,
-                        onValueChanged: {
-                            // Update the form data when location changes
-                            if let prefix = locationPrefix {
-                                formData.location = "\(prefix) \(userLocationInput)".trimmingCharacters(in: .whitespaces)
-                            } else {
-                                formData.location = userLocationInput
-                            }
-                            // BATTERY OPTIMIZATION: Trigger debounced save on form data changes
-                            hasUnsavedChanges = true
-                            scheduleAutoSave()
-                        }
+                    SmartLocationField(
+                        location: $formData.location,
+                        zonePrefix: locationPrefix ?? "GENERAL"
                     )
+                    .onChange(of: formData.location) { _, _ in
+                        hasUnsavedChanges = true
+                        scheduleAutoSave()
+                    }
                 } else {
                     DynamicFieldView(
                         config: config,
@@ -455,16 +443,6 @@ struct WriteupFormView: View {
         formData.zCoordinate = writeup.zCoordinate ?? ""
         formData.issue = writeup.issue ?? ""
         formData.shouldBe = writeup.shouldBe ?? ""
-
-        // Initialize user location input for smart location field
-        let existingLocation = writeup.location ?? ""
-        if let prefix = locationPrefix,
-           existingLocation.uppercased().hasPrefix(prefix + " ") {
-            // Extract user input part after removing prefix
-            userLocationInput = String(existingLocation.dropFirst(prefix.count + 1))
-        } else {
-            userLocationInput = existingLocation
-        }
 
         // Load existing photo attachments from writeup
         loadExistingPhotoAttachments()
@@ -737,19 +715,9 @@ struct WriteupFormView: View {
         }
     }
 
-    /// Get helper text for number-required suggestions
-    private var locationHelperText: String? {
-        let lastWord = userLocationInput.split(separator: " ").last?.uppercased() ?? ""
-
-        switch lastWord {
-        case "SEAT": return "Add seat number (e.g., 1A, 12B, 34F)"
-        case "ROW": return "Add row number (e.g., 1, 15, 32)"
-        case "LAV", "ATTENDANT": return "Add number (e.g., 1, 2, 3)"
-        case "TIRE", "SPOILER", "SLAT", "FLAP", "RACK", "BATTERY": return "Add number (e.g., 1, 2, 3)"
-        case "EBAC", "IPC", "E1", "P300": return "Add specific identifier (e.g., 1, 2, A, B)"
-        default: return nil
-        }
-    }
+    // NOTE: Helper text functionality is now handled by SmartLocationField component
+    // This property removed as SmartLocationField provides intelligent helper text
+    // based on LocationSuggestionEngine recommendations
 
     // MARK: - Draft Management
 
@@ -1342,4 +1310,3 @@ extension String {
 // 5. Create bulk photo attachment workflow
 // 6. Add form export functionality
 // 7. Implement write-up status change notifications
-

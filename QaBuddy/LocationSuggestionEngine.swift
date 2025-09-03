@@ -1287,11 +1287,18 @@ class LocationSuggestionEngine: ObservableObject {
 
     /// Get helper text for the current input word
     func getHelperText(for input: String, in zone: String) -> String? {
+        print("🔍 ENGINE: Looking up helperText for input='\(input)' in zone='\(zone)'")
         let lastWord = input.split(separator: " ").last?.uppercased() ?? ""
+        print("🔍 ENGINE: Engine processed lastWord='\(lastWord)'")
 
         if let suggestions = zoneSuggestions[zone.uppercased()] {
+            print("🔍 ENGINE: Found \(suggestions.count) suggestions for zone '\(zone.uppercased())'")
             if let match = suggestions.first(where: { $0.text == lastWord }) {
+                print("🔍 ENGINE: Found match! suggestion text='\(match.text)', helperText='\(match.helperText ?? "nil")'")
                 return match.helperText
+            } else {
+                print("🔍 ENGINE: No match found for lastWord='\(lastWord)'")
+                print("🔍 ENGINE: Available suggestion texts: \(suggestions.map { $0.text })")
             }
         }
 

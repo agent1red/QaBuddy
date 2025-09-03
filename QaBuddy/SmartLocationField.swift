@@ -5,6 +5,18 @@
 import SwiftUI
 import Combine
 
+// Forward declarations (declared at end of file)
+class _LocationSuggestionPill: UIView {}  // Dummy class for cross-file references
+class _ZonePrefixChip: UIView {}           // Dummy class for cross-file references
+
+extension LocationSuggestionPill {
+    typealias SuggestionType = LocationSuggestionEngine.LocationSuggestion
+}
+
+extension ZonePrefixChip {
+    typealias Source = String
+}
+
 struct SmartLocationField: View {
     @Binding var location: String
     let zonePrefix: String
@@ -16,6 +28,7 @@ struct SmartLocationField: View {
     @State private var formData = LocationFormData()
     @State private var recentLocations: [String] = []
     @State private var validationErrors: [String: String] = [:]
+    @State private var lastSelectedSuggestion: LocationSuggestionEngine.LocationSuggestion?
 
     @FocusState private var isFieldFocused: Bool
 
@@ -116,7 +129,7 @@ struct SmartLocationField: View {
             .textFieldStyle(RoundedBorderTextFieldStyle())
             .focused($isFieldFocused)
             .autocorrectionDisabled()
-            .autocapitalization(.allCharacters)
+            .textCase(.uppercase)
             .onSubmit {
                 finalizeLocation()
                 isFieldFocused = false
@@ -220,12 +233,20 @@ struct SmartLocationField: View {
     // MARK: - Data Management
 
     private func initializeField() {
-        // Split existing location into prefix and user input
-        if location.hasPrefix("\(zonePrefix) ") {
-            let inputPart = String(location.dropFirst(zonePrefix.count + 1))
-            userInput = inputPart
-        } else if !location.isEmpty {
-            userInput = location
+        // Handle zone prefix logic correctly
+        if !location.isEmpty {
+            // Check if location already has zone prefix
+            if location.hasPrefix("\(zonePrefix) ") {
+                // Location has prefix, extract user part
+                let inputPart = String(location.dropFirst(zonePrefix.count + 1))
+                userInput = inputPart.trimmingCharacters(in: .whitespaces)
+            } else {
+                // Location doesn't have prefix, use as-is
+                userInput = location.trimmingCharacters(in: .whitespaces)
+            }
+        } else {
+            // Empty location, start with empty user input (zone prefix will be visual only)
+            userInput = ""
         }
 
         // Load recent locations for this zone
@@ -299,31 +320,62 @@ struct SmartLocationField: View {
     private func getFilteredSuggestions() -> [LocationSuggestionEngine.LocationSuggestion] {
         let allSuggestions = engine.getSuggestions(for: zonePrefix)
 
+        print("🔍 DEBUG: Zone='\(zonePrefix)', All Suggestions=\(allSuggestions.count)")
+
         if userInput.isEmpty {
-            return Array(allSuggestions.prefix(maxSuggestions))
+            let result = Array(allSuggestions.prefix(maxSuggestions))
+            print("🔍 DEBUG: UserInput empty, returning \(result.count) suggestions (max=\(maxSuggestions))")
+            print("🔍 DEBUG: First 5 suggestions: \(result.prefix(5).map { $0.text })")
+            if result.count > 10 {
+                print("🔍 DEBUG: Last 5 suggestions: \(result.dropFirst(max(result.count - 5, 0)).map { $0.text })")
+            }
+            return result
         } else {
             let filtered = allSuggestions.filter { suggestion in
                 suggestion.text.localizedCaseInsensitiveContains(userInput) ||
                 userInput.localizedCaseInsensitiveContains(suggestion.text)
             }
-            return Array(filtered.prefix(maxSuggestions))
+            let result = Array(filtered.prefix(maxSuggestions))
+            print("🔍 DEBUG: UserInput='\(userInput)', Filtered=\(filtered.count), Returning=\(result.count)")
+            return result
         }
     }
 
     private func getCurrentHelperText() -> String? {
-        let lastWord = userInput.split(separator: " ").last?.uppercased() ?? ""
+        // Priority 1: Use the last selected suggestion's helper text (most reliable)
+        if let storedSuggestion = lastSelectedSuggestion {
+            return storedSuggestion.helperText
+        }
+
+        // Priority 2: Fall back to dynamic string parsing (for backward compatibility with typing)
+        let trimmedInput = userInput.trimmingCharacters(in: .whitespaces)
+        if trimmedInput.isEmpty {
+            return nil
+        }
+
+        let lastWord = trimmedInput.split(separator: " ").last?.uppercased() ?? ""
         return engine.getHelperText(for: lastWord, in: zonePrefix)
     }
 
     private func handleSuggestionSelected(_ suggestion: LocationSuggestionEngine.LocationSuggestion) {
-        // Set the suggestion text
+        print("🔍 HANDLER: Processing suggestion text='\(suggestion.text)', type='\(suggestion.type)', hasHelperText='\(suggestion.helperText != nil)'")  // Add this
+
+        // Store the last selected suggestion for helper text
+        lastSelectedSuggestion = suggestion
+        print("🔍 HANDLER: Stored suggestion='\(suggestion.text)' for helper text")  // Add this
+
+        // Set the suggestion text - replace entire input, don't append
         let baseText = suggestion.text
         if suggestion.needsAdditionalInput {
-            userInput = (userInput.isEmpty ? "" : userInput + " ") + baseText + " "
+            // For suggestions that need additional input, just set the base text and add space
+            userInput = baseText + " "
             isFieldFocused = true // Keep focus for additional input
+            print("🔍 HANDLER: Set userInput to '\(userInput)' for needsAdditionalInput=true")  // Add this
         } else {
+            // For complete suggestions, set the final text and finalize
             userInput = baseText
             finalizeLocation()
+            print("🔍 HANDLER: Set userInput to '\(userInput)' for needsAdditionalInput=false")  // Add this
         }
 
         // Clear validation errors on selection
@@ -504,6 +556,9 @@ struct RecentlyUsedChip: View {
         .buttonStyle(PlainButtonStyle())
     }
 }
+
+// NOTE: View components removed to avoid Swift 6 redeclaration error
+// They are now defined in LocationSuggestionPill.swift as canonical versions
 
 // MARK: - Preview
 
