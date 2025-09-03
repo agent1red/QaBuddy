@@ -303,42 +303,15 @@ struct SmartLocationField: View {
     // MARK: - Input Handling
 
     private func handleInputChange(from oldValue: String, to newValue: String) {
-        // DEBUG: Log all input changes to track space blocking
-        print("🔍 INPUT CHANGE: '\(oldValue)' -> '\(newValue)'")
-        print("   ↳ Length: \(oldValue.count) -> \(newValue.count)")
-
-        // Enhanced space bar debugging
-        if newValue.count > oldValue.count {
-            let addedChars = newValue.replacingOccurrences(of: oldValue, with: "", options: .literal)
-            if addedChars.contains(" ") {
-                print("📍 SPACE BAR PRESSED: Added space character ' '")
-                print("   ✏️  Text was: '\(oldValue)' now: '\(newValue)' ← SPACE BAR!")
-            }
-        }
-
-        if oldValue.count > newValue.count {
-            let removedChars = oldValue.replacingOccurrences(of: newValue, with: "", options: .literal)
-            if removedChars.contains(" ") {
-                print("❌ SPACE REMOVED: Space character ' ' was deleted")
-                print("   🗑️  Text was: '\(oldValue)' now: '\(newValue)' ← SPACE GONE!")
-            }
-        }
-
-        // Show binding updates that affect spaces
-        let currentLocation = location
-        print("   ↳ Zone prefix logic: extracting '\(currentLocation)' -> user input")
-
         // Update location immediately for form
         updateLocation()
 
-        // Debounced validation
+        // Debounced validation - invalidate previous timer and create new one
         validationTimer?.invalidate()
         validationTimer = Timer.scheduledTimer(withTimeInterval: validationDebounceInterval, repeats: false) { _ in
             Task { @MainActor in
-                validateInput()
-
-                // Update suggestions based on input
-                // This will trigger view update in suggestionsSection
+                self.validateInput()
+                // Note: Suggestion updates happen automatically via state changes
             }
         }
     }
@@ -404,9 +377,6 @@ struct SmartLocationField: View {
             // Use a trimmed copy ONLY to check "emptiness".
             let emptinessCheck = newLocation.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            print("🔄 SYNC BINDING: '\(location)' -> '\(newLocation)'")
-            print("   ↳ userInput before: '\(userInput)'")
-
             if !emptinessCheck.isEmpty {
                 if newLocation.hasPrefix("\(zonePrefix) ") {
                     // Extract the user portion AFTER the "<ZONE> " prefix, preserving trailing spaces
@@ -423,19 +393,12 @@ struct SmartLocationField: View {
 
                     if inputPart != userInput {
                         userInput = inputPart
-                        print("   💡 Updated userInput to: '\(userInput)' (prefix-aware, preserved trailing spaces)")
-                    } else {
-                        print("   ⏭️ Skipping update - userInput already matches")
                     }
                 } else if newLocation != userInput {
                     // No prefix case; keep as-is (including trailing spaces)
                     userInput = newLocation
-                    print("   💡 Updated userInput to: '\(userInput)' (non-prefix, preserved spaces)")
-                } else {
-                    print("   ⏭️ Skipping update - userInput already matches")
                 }
             } else if !userInput.isEmpty {
-                print("   🧹 Clearing userInput (binding became empty)")
                 userInput = ""
             }
 
