@@ -52,6 +52,7 @@ struct WriteupFormView: View {
 
     // Navigation state
     @State private var selectedTab: Int? = nil // For callback navigation
+    @State private var userLocationInput: String = ""
 
     // Load/create writeup on appear
     init(template: InspectionTemplate, selectedTab: Binding<Int?>? = nil) {
@@ -289,15 +290,37 @@ struct WriteupFormView: View {
         let fieldConfigs = template.decodedFieldConfigurations.filter { $0.visibility != .hidden }
         return AnyView(ForEach(fieldConfigs, id: \.fieldName) { config in
             Section {
-                DynamicFieldView(
-                    config: config,
-                    coordinateSystem: coordinateSystemManager.currentSystem,
-                    validationError: validationErrors[config.fieldName],
-                    formData: $formData
-                ) {
-                    // BATTERY OPTIMIZATION: Trigger debounced save on form data changes
-                    hasUnsavedChanges = true
-                    scheduleAutoSave()
+                if config.fieldName == "location" {
+                    SmartLocationField(
+                        locationPrefix: locationPrefix,
+                        suggestions: getLocationSuggestions(for: locationPrefix),
+                        helperText: locationHelperText,
+                        placeholder: "Enter location",
+                        validationError: validationErrors["location"],
+                        userLocationInput: $userLocationInput,
+                        onValueChanged: {
+                            // Update the form data when location changes
+                            if let prefix = locationPrefix {
+                                formData.location = "\(prefix) \(userLocationInput)".trimmingCharacters(in: .whitespaces)
+                            } else {
+                                formData.location = userLocationInput
+                            }
+                            // BATTERY OPTIMIZATION: Trigger debounced save on form data changes
+                            hasUnsavedChanges = true
+                            scheduleAutoSave()
+                        }
+                    )
+                } else {
+                    DynamicFieldView(
+                        config: config,
+                        coordinateSystem: coordinateSystemManager.currentSystem,
+                        validationError: validationErrors[config.fieldName],
+                        formData: $formData
+                    ) {
+                        // BATTERY OPTIMIZATION: Trigger debounced save on form data changes
+                        hasUnsavedChanges = true
+                        scheduleAutoSave()
+                    }
                 }
             } header: {
                 Text(formFieldLabel(for: config.fieldName))
@@ -432,6 +455,16 @@ struct WriteupFormView: View {
         formData.zCoordinate = writeup.zCoordinate ?? ""
         formData.issue = writeup.issue ?? ""
         formData.shouldBe = writeup.shouldBe ?? ""
+
+        // Initialize user location input for smart location field
+        let existingLocation = writeup.location ?? ""
+        if let prefix = locationPrefix,
+           existingLocation.uppercased().hasPrefix(prefix + " ") {
+            // Extract user input part after removing prefix
+            userLocationInput = String(existingLocation.dropFirst(prefix.count + 1))
+        } else {
+            userLocationInput = existingLocation
+        }
 
         // Load existing photo attachments from writeup
         loadExistingPhotoAttachments()
@@ -596,6 +629,128 @@ struct WriteupFormView: View {
         }
     }
 
+    // MARK: - Smart Location Field
+
+    /// Detect zone prefix from current session inspection type
+    private var locationPrefix: String? {
+        guard let session = sessionManager.activeSession,
+              let inspectionType = session.inspectionType,
+              SessionManager.shared.isZoneBasedSession else {
+            return nil
+        }
+
+        // Use ZoneConfigurationManager's complete 19-zone list (from Phase 3.1)
+        let zoneManager = ZoneConfigurationManager.shared
+        let currentZones = zoneManager.currentZones
+
+        // Check if inspection type matches any zone (case-insensitive)
+        for zone in currentZones {
+            if inspectionType.localizedCaseInsensitiveContains(zone) {
+                return zone.uppercased()
+            }
+        }
+
+        // If inspection type contains "deck" or matches A/B deck pattern
+        if inspectionType.localizedCaseInsensitiveContains("Deck") {
+            if inspectionType.localizedCaseInsensitiveContains("A") {
+                return "A DECK"
+            } else if inspectionType.localizedCaseInsensitiveContains("B") {
+                return "B DECK"
+            }
+        }
+
+        return nil
+    }
+
+    /// Get location suggestions based on detected zone
+    private func getLocationSuggestions(for zone: String?) -> [String] {
+        guard let zone = zone?.uppercased() else { return [] }
+
+        switch zone {
+        case "A DECK":
+            return [
+                "SEAT", "ROW", "GALLEY FWD", "GALLEY MID", "GALLEY AFT", "LAV",
+                "OVERHEAD BIN L", "OVERHEAD BIN R", "EMERGENCY EXIT L", "EMERGENCY EXIT R",
+                "ATTENDANT SEAT", "DOOR", "CLOSET FWD", "CLOSET AFT"
+            ]
+        case "B DECK":
+            return [
+                "CARGO DOOR", "POSITION", "CONTAINER LOCK", "PALLET POSITION",
+                "FLOOR TRACK", "WALL NET", "CEILING NET", "SMOKE DETECTOR", "TIE DOWN POINT"
+            ]
+        case "FORWARD CARGO", "AFT CARGO":
+            return [
+                "CARGO DOOR", "POSITION", "CONTAINER LOCK", "PALLET POSITION",
+                "FLOOR TRACK", "BULK CARGO", "SMOKE DETECTOR", "TIE DOWN POINT"
+            ]
+        case "LEFT WING", "RIGHT WING":
+            return [
+                "FRONT SPAR", "REAR SPAR", "WING RIB", "LEADING EDGE SLAT", "INBOARD FLAPERON",
+                "OUTBOARD AILERON", "SPOILER PANEL", "RAKED WINGLET", "WING-BODY FAIRING",
+                "FUEL ACCESS PANEL", "STATIC WICK", "LIGHTNING PROTECTION"
+            ]
+        case "LEFT ENGINE", "RIGHT ENGINE":
+            return [
+                "FAN BLADES", "FAN CASE", "THRUST REVERSER", "IPC STAGE 1", "IPC STAGE 2",
+                "COMBUSTOR", "LP TURBINE", "VFSG MOUNT", "CHEVROUN NOZZLE", "FADEC UNIT",
+                "PYLON INTERFACE", "AIRBLEEDS"
+            ]
+        case "APU":
+            return [
+                "GAS GENERATOR", "POWER TURBINE", "ACCESSORY GEARBOX", "FIRE DETECTION LOOP",
+                "EXTINGUISHER SQUIB", "ELECTRONIC CONTROL BOX", "EXHAUST EDUCTOR",
+                "AIR INLET DOOR", "APU FIREWALL", "MOUNT STRUCTURE"
+            ]
+        case "LEFT MLG", "RIGHT MLG":
+            return [
+                "TITANIUM CYLINDER", "EBAC UNIT", "DRAG BRACE", "WOW SENSOR",
+                "SIDE BRACE", "HYDRAULIC SUPPLY LINE", "WHEEL HUB", "TIRE PRESSURE SENSOR",
+                "DOOR ACTUATOR", "SEMI-LEVERED STRUT"
+            ]
+        case "NLG":
+            return [
+                "STEERING ACTUATOR", "CENTERING CAM", "DUAL WHEEL ASSEMBLY", "TAXI LIGHT MOUNT",
+                "TOW BAR ATTACHMENT", "SHIMMY DAMPER", "EXTENSION ACTUATOR",
+                "POSITION SENSOR", "DRAG STRUT"
+            ]
+        case "FW EE BAY", "AFT EE BAY":
+            return [
+                "CCR CABINET", "FCE CABINET", "P300 PANEL", "LI-ION BATTERY",
+                "BATTERY CHARGER", "E1 RACK", "WIRE BUNDLE", "COOLING DUCT",
+                "GROUND STUD", "ACCESS DOOR"
+            ]
+        case "LEFT AC BAY", "RIGHT AC BAY":
+            return [
+                "PACK UNIT", "MIXING UNIT", "CONDENSER", "COMPRESSOR", "VALVE", "DUCT",
+                "ISOLATION VALVE", "TEMPERATURE SENSOR", "PRESSURE TRANSDUCER",
+                "FILTER HOUSING"
+            ]
+        case "FLIGHT DECK":
+            return [
+                "P1 DISPLAY", "P5 OVERHEAD", "P9 FORWARD AISLE", "P55 GLARESHIELD",
+                "EFB MOUNT", "ISFD PANEL", "MFK KEYPAD", "CURSOR DEVICE", "P7 AFT AISLE",
+                "WINDOW HEAT CONTROLLER"
+            ]
+        default:
+            return ["ACCESS PANEL", "FRAME STATION", "STRUCTURAL MEMBER", "SYSTEM COMPONENT",
+                    "FASTENER", "CONNECTOR", "BRAKE", "VALVE"]
+        }
+    }
+
+    /// Get helper text for number-required suggestions
+    private var locationHelperText: String? {
+        let lastWord = userLocationInput.split(separator: " ").last?.uppercased() ?? ""
+
+        switch lastWord {
+        case "SEAT": return "Add seat number (e.g., 1A, 12B, 34F)"
+        case "ROW": return "Add row number (e.g., 1, 15, 32)"
+        case "LAV", "ATTENDANT": return "Add number (e.g., 1, 2, 3)"
+        case "TIRE", "SPOILER", "SLAT", "FLAP", "RACK", "BATTERY": return "Add number (e.g., 1, 2, 3)"
+        case "EBAC", "IPC", "E1", "P300": return "Add specific identifier (e.g., 1, 2, A, B)"
+        default: return nil
+        }
+    }
+
     // MARK: - Draft Management
 
     /// Static cache for draft objects to prevent repeated database queries
@@ -683,7 +838,130 @@ struct WriteupFormView: View {
     }
 }
 
-// MARK: - Supporting Views
+    // MARK: - Supporting Views and Components
+
+    /// Visual chip component for zone prefix display
+    struct ZonePrefixChip: View {
+        let zone: String
+
+        var body: some View {
+            Text(zone)
+                .font(.system(.caption, design: .rounded))
+                .fontWeight(.medium)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.blue.opacity(0.15))
+                .foregroundColor(.blue)
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                )
+        }
+    }
+
+    /// Smart location field with zone prefix and suggestions
+    struct SmartLocationField: View {
+        let locationPrefix: String?
+        let suggestions: [String]
+        let helperText: String?
+        let placeholder: String
+        let validationError: String?
+
+        @Binding var userLocationInput: String
+        let onValueChanged: () -> Void
+
+        @State private var showingSuggestions = true
+        @FocusState private var isTextFieldFocused: Bool
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    // Zone prefix as visual chip
+                    if let prefix = locationPrefix {
+                        ZonePrefixChip(zone: prefix)
+                    }
+
+                    TextField(
+                        locationPrefix != nil ? "Specify location" : placeholder,
+                        text: $userLocationInput
+                    )
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .autocorrectionDisabled()
+                    .focused($isTextFieldFocused)
+                    .border(validationError != nil ? Color.red : Color.clear, width: validationError != nil ? 1 : 0)
+                    .onChange(of: userLocationInput) { _, newValue in
+                        showingSuggestions = !newValue.isEmpty
+                        onValueChanged()
+                    }
+                }
+
+                // Validation error
+                if let error = validationError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .padding(.leading, 4)
+                }
+
+                // Helper text for number-required items
+                if let helper = helperText, !helper.isEmpty {
+                    Text(helper)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 4)
+                }
+
+                // Suggestion pills (only show if user hasn't entered too much)
+                if !suggestions.isEmpty && showingSuggestions && userLocationInput.count < 20 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(suggestions, id: \.self) { suggestion in
+                                Button(action: {
+                                    handleSuggestionTap(suggestion)
+                                }) {
+                                    Text(suggestion)
+                                        .font(.caption)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(Color.blue.opacity(0.1))
+                                        .foregroundColor(.blue)
+                                        .cornerRadius(15)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 15)
+                                                .stroke(Color.blue.opacity(0.2), lineWidth: 1)
+                                        )
+                                }
+                            }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+            }
+        }
+
+        private func handleSuggestionTap(_ suggestion: String) {
+            let needsNumber = [
+                "SEAT", "ROW", "LAV", "OVERHEAD BIN L", "OVERHEAD BIN R",
+                "TIRE", "SPOILER", "SLAT", "FLAP", "RACK E", "BATTERY",
+                "EBAC", "IPC", "E1", "P300", "VALVE", "DUCT", "BRAKE",
+                "P1", "P5", "P9", "P55", "P7"
+            ]
+
+            if needsNumber.contains(where: { suggestion.uppercased().hasPrefix($0) || suggestion.uppercased().contains($0) }) {
+                // Add space to keep keyboard open and focused
+                userLocationInput = suggestion + " "
+                isTextFieldFocused = true
+            } else {
+                // Complete entry, add suggestion
+                userLocationInput = suggestion.isEmpty ? suggestion : "\(userLocationInput) \(suggestion)"
+            }
+
+            onValueChanged()
+        }
+    }
+
+    // MARK: - Supporting Views
 
 struct PhotoAttachmentView: View {
     let photo: Photo
@@ -1064,4 +1342,3 @@ extension String {
 // 5. Create bulk photo attachment workflow
 // 6. Add form export functionality
 // 7. Implement write-up status change notifications
-
