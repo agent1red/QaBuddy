@@ -78,6 +78,10 @@ struct SmartLocationField: View {
         .onChange(of: userInput) { oldValue, newValue in
             handleInputChange(from: oldValue, to: newValue)
         }
+        .onChange(of: location) { oldValue, newValue in
+            // Sync binding changes to userInput for proper initialization
+            syncLocationBindingToUserInput(newValue)
+        }
     }
 
     // MARK: - Field Components
@@ -370,6 +374,31 @@ struct SmartLocationField: View {
     private func recordSelection(_ suggestion: LocationSuggestionEngine.LocationSuggestion) {
         engine.recordUsage(zone: zonePrefix, suggestion: suggestion.text)
         loadRecentLocations() // Refresh recent list
+    }
+
+    /// Sync location binding changes to userInput for proper initialization
+    private func syncLocationBindingToUserInput(_ newLocation: String) {
+        let trimmedLocation = newLocation.trimmingCharacters(in: .whitespaces)
+
+        // Only update userInput if location binding has actual content
+        if !trimmedLocation.isEmpty {
+            // Handle zone prefix logic correctly for binding updates
+            if trimmedLocation.hasPrefix("\(zonePrefix) ") {
+                // Location has prefix, extract user part
+                let inputPart = String(trimmedLocation.dropFirst(zonePrefix.count + 1))
+                userInput = inputPart.trimmingCharacters(in: .whitespaces)
+            } else if trimmedLocation != userInput {
+                // Location doesn't have prefix or is different, use as-is
+                userInput = trimmedLocation
+            }
+            // Note: Only update userInput if different to avoid triggering onChange loops
+        } else if !userInput.isEmpty {
+            // Location binding is now empty but userInput has content - clear it
+            userInput = ""
+        }
+
+        // Update formData for consistency
+        formData.location = trimmedLocation
     }
 
     // MARK: - Validation
