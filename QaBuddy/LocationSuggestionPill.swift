@@ -175,15 +175,30 @@ struct LocationSuggestionPill: View {
     }
 
     private func appendSuggestionWithSpace() {
-        let prefix = zonePrefix.map { "\($0) " } ?? ""
-        let currentText = userLocationInput.isEmpty ? prefix : userLocationInput
-        userLocationInput = currentText + (suggestion.text + " ")
+        // Only operate on the bound user text (no zone prefix here).
+        var text = userLocationInput
+
+        // If there is existing text and it doesn't end with whitespace, add one separator.
+        if let last = text.last, !last.isWhitespace {
+            text.append(" ")
+        }
+
+        // Append the suggestion token and a trailing space so the user can continue typing.
+        text.append(suggestion.text)
+        text.append(" ")
+
+        userLocationInput = text
+
+        // Keep the text field focused so the user can immediately type after the pill.
         isTextFieldFocused = true
+        DispatchQueue.main.async {
+            self.isTextFieldFocused = true
+        }
     }
 
     private func setCompleteSuggestion() {
-        let prefix = zonePrefix.map { "\($0) " } ?? ""
-        userLocationInput = prefix + suggestion.text
+        // Complete suggestions replace the current token; no zone prefix here.
+        userLocationInput = suggestion.text
         isTextFieldFocused = false
     }
 
@@ -344,8 +359,8 @@ struct QuickValueChip: View {
     }
 
     private func selectQuickValue() {
-        let prefix = zonePrefix.map { "\($0) " } ?? ""
-        userLocationInput = prefix + suggestion.text + " " + value
+        // Compose: "<SUGGESTION> <VALUE>" (no zone prefix here).
+        userLocationInput = suggestion.text + " " + value
         isTextFieldFocused = false // Complete entry
 
         withAnimation(.easeInOut(duration: 0.2)) {

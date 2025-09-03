@@ -4,18 +4,7 @@
 
 import SwiftUI
 import Combine
-
-// Forward declarations (declared at end of file)
-class _LocationSuggestionPill: UIView {}  // Dummy class for cross-file references
-class _ZonePrefixChip: UIView {}           // Dummy class for cross-file references
-
-extension LocationSuggestionPill {
-    typealias SuggestionType = LocationSuggestionEngine.LocationSuggestion
-}
-
-extension ZonePrefixChip {
-    typealias Source = String
-}
+import Foundation
 
 struct SmartLocationField: View {
     @Binding var location: String
@@ -237,13 +226,21 @@ struct SmartLocationField: View {
     // MARK: - Data Management
 
     private func initializeField() {
-        // Handle zone prefix logic correctly
+        // Handle zone prefix logic correctly - PRESERVE USER SPACES
         if !location.isEmpty {
             // Check if location already has zone prefix
             if location.hasPrefix("\(zonePrefix) ") {
-                // Location has prefix, extract user part
-                let inputPart = String(location.dropFirst(zonePrefix.count + 1))
-                userInput = inputPart.trimmingCharacters(in: .whitespaces)
+                // Location has prefix, extract user part BUT PRESERVE TRAILING SPACES
+                let rawInputPart = String(location.dropFirst(zonePrefix.count + 1))
+                // Trim only leading whitespace between prefix and user input, preserve trailing user spaces
+                let trimSet = CharacterSet.whitespaces
+                var startIndex = rawInputPart.startIndex
+                // Find first non-whitespace character
+                while startIndex < rawInputPart.endIndex && trimSet.contains(rawInputPart.unicodeScalars[startIndex]) {
+                    startIndex = rawInputPart.index(after: startIndex)
+                }
+                let inputPart = String(rawInputPart[startIndex...])
+                userInput = inputPart  // Keep as-is, preserve user's trailing spaces
             } else {
                 // Location doesn't have prefix, use as-is
                 userInput = location.trimmingCharacters(in: .whitespaces)
@@ -306,6 +303,31 @@ struct SmartLocationField: View {
     // MARK: - Input Handling
 
     private func handleInputChange(from oldValue: String, to newValue: String) {
+        // DEBUG: Log all input changes to track space blocking
+        print("🔍 INPUT CHANGE: '\(oldValue)' -> '\(newValue)'")
+        print("   ↳ Length: \(oldValue.count) -> \(newValue.count)")
+
+        // Enhanced space bar debugging
+        if newValue.count > oldValue.count {
+            let addedChars = newValue.replacingOccurrences(of: oldValue, with: "", options: .literal)
+            if addedChars.contains(" ") {
+                print("📍 SPACE BAR PRESSED: Added space character ' '")
+                print("   ✏️  Text was: '\(oldValue)' now: '\(newValue)' ← SPACE BAR!")
+            }
+        }
+
+        if oldValue.count > newValue.count {
+            let removedChars = oldValue.replacingOccurrences(of: newValue, with: "", options: .literal)
+            if removedChars.contains(" ") {
+                print("❌ SPACE REMOVED: Space character ' ' was deleted")
+                print("   🗑️  Text was: '\(oldValue)' now: '\(newValue)' ← SPACE GONE!")
+            }
+        }
+
+        // Show binding updates that affect spaces
+        let currentLocation = location
+        print("   ↳ Zone prefix logic: extracting '\(currentLocation)' -> user input")
+
         // Update location immediately for form
         updateLocation()
 
@@ -376,30 +398,50 @@ struct SmartLocationField: View {
         loadRecentLocations() // Refresh recent list
     }
 
-    /// Sync location binding changes to userInput for proper initialization
-    private func syncLocationBindingToUserInput(_ newLocation: String) {
-        let trimmedLocation = newLocation.trimmingCharacters(in: .whitespaces)
+        /// Sync location binding changes to userInput for proper initialization
+        private func syncLocationBindingToUserInput(_ newLocation: String) {
+            // IMPORTANT: do not trim trailing spaces globally; they are meaningful for typing after a pill.
+            // Use a trimmed copy ONLY to check "emptiness".
+            let emptinessCheck = newLocation.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Only update userInput if location binding has actual content
-        if !trimmedLocation.isEmpty {
-            // Handle zone prefix logic correctly for binding updates
-            if trimmedLocation.hasPrefix("\(zonePrefix) ") {
-                // Location has prefix, extract user part
-                let inputPart = String(trimmedLocation.dropFirst(zonePrefix.count + 1))
-                userInput = inputPart.trimmingCharacters(in: .whitespaces)
-            } else if trimmedLocation != userInput {
-                // Location doesn't have prefix or is different, use as-is
-                userInput = trimmedLocation
+            print("🔄 SYNC BINDING: '\(location)' -> '\(newLocation)'")
+            print("   ↳ userInput before: '\(userInput)'")
+
+            if !emptinessCheck.isEmpty {
+                if newLocation.hasPrefix("\(zonePrefix) ") {
+                    // Extract the user portion AFTER the "<ZONE> " prefix, preserving trailing spaces
+                    let rawInputPart = String(newLocation.dropFirst(zonePrefix.count + 1))
+
+                    // Remove ONLY leading whitespace inside the user part; keep trailing spaces intact.
+                    let trimSet = CharacterSet.whitespaces
+                    var startIndex = rawInputPart.startIndex
+                    while startIndex < rawInputPart.endIndex, trimSet.contains(rawInputPart.unicodeScalars[startIndex]) {
+                        startIndex = rawInputPart.index(after: startIndex)
+                    }
+
+                    let inputPart = String(rawInputPart[startIndex...])
+
+                    if inputPart != userInput {
+                        userInput = inputPart
+                        print("   💡 Updated userInput to: '\(userInput)' (prefix-aware, preserved trailing spaces)")
+                    } else {
+                        print("   ⏭️ Skipping update - userInput already matches")
+                    }
+                } else if newLocation != userInput {
+                    // No prefix case; keep as-is (including trailing spaces)
+                    userInput = newLocation
+                    print("   💡 Updated userInput to: '\(userInput)' (non-prefix, preserved spaces)")
+                } else {
+                    print("   ⏭️ Skipping update - userInput already matches")
+                }
+            } else if !userInput.isEmpty {
+                print("   🧹 Clearing userInput (binding became empty)")
+                userInput = ""
             }
-            // Note: Only update userInput if different to avoid triggering onChange loops
-        } else if !userInput.isEmpty {
-            // Location binding is now empty but userInput has content - clear it
-            userInput = ""
-        }
 
-        // Update formData for consistency
-        formData.location = trimmedLocation
-    }
+            // Keep the form data consistent with the raw location (preserve spaces)
+            formData.location = newLocation
+        }
 
     // MARK: - Validation
 
