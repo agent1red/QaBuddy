@@ -291,7 +291,7 @@ struct WriteupFormView: View {
         return AnyView(ForEach(fieldConfigs, id: \.fieldName) { config in
             Section {
                 if config.fieldName == "location" {
-                    SmartLocationField(
+                    InlineSmartLocationField(
                         locationPrefix: locationPrefix,
                         suggestions: getLocationSuggestions(for: locationPrefix),
                         helperText: locationHelperText,
@@ -841,7 +841,7 @@ struct WriteupFormView: View {
     // MARK: - Supporting Views and Components
 
     /// Visual chip component for zone prefix display
-    struct ZonePrefixChip: View {
+    struct InlineZonePrefixChip: View {
         let zone: String
 
         var body: some View {
@@ -861,7 +861,7 @@ struct WriteupFormView: View {
     }
 
     /// Smart location field with zone prefix and suggestions
-    struct SmartLocationField: View {
+    struct InlineSmartLocationField: View {
         let locationPrefix: String?
         let suggestions: [String]
         let helperText: String?
@@ -879,7 +879,7 @@ struct WriteupFormView: View {
                 HStack {
                     // Zone prefix as visual chip
                     if let prefix = locationPrefix {
-                        ZonePrefixChip(zone: prefix)
+                        InlineZonePrefixChip(zone: prefix)
                     }
 
                     TextField(
@@ -1342,3 +1342,4 @@ extension String {
 // 5. Create bulk photo attachment workflow
 // 6. Add form export functionality
 // 7. Implement write-up status change notifications
+
