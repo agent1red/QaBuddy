@@ -22,7 +22,7 @@ struct LocationSuggestionPill: View {
     var textColor: Color = .white
     var validationError: Bool = false
     var showHapticFeedback: Bool = true
-    var animationEnabled: Bool = true
+    var animationEnabled: Bool = true  // Default true, but can be disabled for performance
 
     var body: some View {
         VStack(spacing: 4) {
@@ -41,8 +41,9 @@ struct LocationSuggestionPill: View {
                 .transition(.opacity.combined(with: .slide))
             }
         }
-        .animation(animationEnabled ? .easeInOut(duration: 0.2) : nil, value: isHighlighted)
-        .animation(animationEnabled ? .easeInOut(duration: 0.3) : nil, value: showQuickValues)
+        // PERFORMANCE: Consolidated animations with shorter durations
+        .animation(animationEnabled ? .easeOut(duration: 0.15) : nil, value: isHighlighted)
+        .animation(animationEnabled ? .easeOut(duration: 0.2) : nil, value: showQuickValues)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint(accessibilityHint)
         .accessibilityAction(named: Text("Select")) {
@@ -161,14 +162,14 @@ struct LocationSuggestionPill: View {
             setCompleteSuggestion()
         }
 
-        // Highlight briefly
-        withAnimation(.easeInOut(duration: 0.2)) {
+        // PERFORMANCE: Single animation for highlight flash
+        // Using spring animation for natural feel without multiple dispatches
+        withAnimation(.interactiveSpring(response: 0.3, dampingFraction: 0.8)) {
             isHighlighted = true
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isHighlighted = false
-            }
+        // Auto-reset without additional animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            isHighlighted = false
         }
 
         onSuggestionSelected?(suggestion)
@@ -277,7 +278,8 @@ struct PillButtonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.8 : 1.0)
             .brightness(configuration.isPressed ? 0.1 : 0)
             .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
+            // PERFORMANCE: Removed animation from button style to prevent cascading
+            // Visual feedback handled by scale and opacity directly
             .onChange(of: configuration.isPressed) { _, newValue in
                 isPressed = newValue
                 if newValue && showHapticFeedback {
@@ -388,8 +390,9 @@ struct ZonePrefixChip: View {
     var color: Color = .blue
     var textColor: Color = .white
 
-    @State private var animate = false
-
+    // PERFORMANCE FIX: Removed continuous animation that caused heat generation
+    // Now using static shadow and scale for better thermal efficiency
+    
     var body: some View {
         Text(zone)
             .font(.system(.caption, design: .rounded))
@@ -403,20 +406,29 @@ struct ZonePrefixChip: View {
                         RoundedRectangle(cornerRadius: 12)
                             .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
                     )
+                    // Static shadow - no animation needed
                     .shadow(
                         color: color.opacity(0.3),
-                        radius: animate ? 3 : 6,
+                        radius: 4,
                         x: 0,
-                        y: animate ? 1 : 3
+                        y: 2
                     )
             )
             .foregroundColor(textColor)
-            .scaleEffect(animate ? 1.02 : 1.0)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
-                    animate = true
-                }
-            }
+            // Visual distinction without animation
+            .overlay(
+                // Subtle gradient overlay for depth without animation
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.white.opacity(0.15),
+                        Color.clear
+                    ]),
+                    startPoint: .top,
+                    endPoint: .center
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .allowsHitTesting(false)
+            )
     }
 }
 

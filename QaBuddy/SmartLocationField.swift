@@ -21,10 +21,10 @@ struct SmartLocationField: View {
 
     @FocusState private var isFieldFocused: Bool
 
-    // Debounced auto-save and validation
-    @State private var validationTimer: Timer?
+    // PERFORMANCE: Using DispatchWorkItem instead of Timer for better memory management
+    @State private var validationWorkItem: DispatchWorkItem?
     @State private var lastValidationTime: Date?
-    private let validationDebounceInterval: TimeInterval = 0.3
+    private let validationDebounceInterval: TimeInterval = 0.5  // Increased to reduce frequency
     private let recentLocationsLimit = 5
 
     // Configuration
@@ -56,8 +56,8 @@ struct SmartLocationField: View {
                 suggestionsSection
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: validationError)
-        .animation(.easeInOut(duration: 0.2), value: isFieldFocused)
+        // PERFORMANCE: Single animation for state changes, disabled for error states
+        .animation(validationError ? nil : .easeOut(duration: 0.15), value: isFieldFocused)
         .onAppear {
             initializeField()
         }
@@ -204,7 +204,8 @@ struct SmartLocationField: View {
                     .foregroundColor(.secondary)
 
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
+                    // PERFORMANCE: Use LazyHStack for better memory efficiency
+                    LazyHStack(spacing: 8) {
                         ForEach(suggestions, id: \.id) { suggestion in
                             LocationSuggestionPill(
                                 suggestion: suggestion,
@@ -214,7 +215,8 @@ struct SmartLocationField: View {
                                 onSuggestionSelected: { selectedSuggestion in
                                     handleSuggestionSelected(selectedSuggestion)
                                     recordSelection(selectedSuggestion)
-                                }
+                                },
+                                animationEnabled: false  // PERFORMANCE: Disable individual pill animations
                             )
                         }
                     }
@@ -258,8 +260,9 @@ struct SmartLocationField: View {
     }
 
     private func cleanup() {
-        validationTimer?.invalidate()
-        validationTimer = nil
+        // PERFORMANCE: Cancel DispatchWorkItem instead of Timer invalidation
+        validationWorkItem?.cancel()
+        validationWorkItem = nil
 
         // Save final location
         updateLocation()
@@ -306,14 +309,22 @@ struct SmartLocationField: View {
         // Update location immediately for form
         updateLocation()
 
-        // Debounced validation - invalidate previous timer and create new one
-        validationTimer?.invalidate()
-        validationTimer = Timer.scheduledTimer(withTimeInterval: validationDebounceInterval, repeats: false) { _ in
+        // PERFORMANCE: Use DispatchWorkItem for debounced validation
+        // Cancel any pending validation
+        validationWorkItem?.cancel()
+        
+        // Create new work item for validation
+        let workItem = DispatchWorkItem {
+            // No need for [weak self] here - SmartLocationField is a struct (value type)
+            // Structs don't create retain cycles since they're copied, not referenced
             Task { @MainActor in
                 self.validateInput()
                 // Note: Suggestion updates happen automatically via state changes
             }
         }
+        
+        validationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + validationDebounceInterval, execute: workItem)
     }
 
     private func getFilteredSuggestions() -> [LocationSuggestionEngine.LocationSuggestion] {
@@ -544,13 +555,11 @@ struct RecentlyUsedChip: View {
     var body: some View {
         Button(action: {
             onSelected()
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isSelected = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isSelected = false
-                }
+            // PERFORMANCE: Simple state toggle without animation cascade
+            isSelected = true
+            // Reset after brief delay without animation
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                isSelected = false
             }
         }) {
             HStack(spacing: 4) {
