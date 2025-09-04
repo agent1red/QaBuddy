@@ -1,73 +1,62 @@
-// SmartLocationField+Optimized.swift
-// Performance-optimized version with intelligent caching and memoization
-// Task 1.2: View Hierarchy Optimization
+// SmartLocationField.swift
+// Intelligent Location Entry System - Phase 3.2 Subtask 2.3
+// Standalone smart location field component with real-time validation
 
 import SwiftUI
 import Combine
 import Foundation
-
-// MARK: - Optimized Smart Location Field
 
 struct SmartLocationField: View {
     @Binding var location: String
     let zonePrefix: String
     let validationError: Bool = false
     let showSuggestions: Bool = true
-    
+
     @StateObject private var engine = LocationSuggestionEngine.shared
     @State private var userInput: String = ""
     @State private var formData = LocationFormData()
     @State private var recentLocations: [String] = []
     @State private var validationErrors: [String: String] = [:]
     @State private var lastSelectedSuggestion: LocationSuggestionEngine.LocationSuggestion?
-    
+
     @FocusState private var isFieldFocused: Bool
-    
-    // PERFORMANCE: Cached computed values to prevent recomputation
-    @State private var cachedSuggestions: [LocationSuggestionEngine.LocationSuggestion] = []
-    @State private var cachedHelperText: String? = nil
-    @State private var cachedValidationState: ValidationState = ValidationState()
-    @State private var lastInputForSuggestions: String = ""
-    @State private var lastZoneForSuggestions: String = ""
-    
+
     // PERFORMANCE: Using DispatchWorkItem instead of Timer for better memory management
     @State private var validationWorkItem: DispatchWorkItem?
-    @State private var suggestionUpdateWorkItem: DispatchWorkItem?
     @State private var lastValidationTime: Date?
-    private let validationDebounceInterval: TimeInterval = 0.5
-    private let suggestionDebounceInterval: TimeInterval = 0.2  // Faster for suggestions
+    private let validationDebounceInterval: TimeInterval = 0.5  // Increased to reduce frequency
     private let recentLocationsLimit = 5
-    
+
     // Configuration
     var placeholder: String = "Enter location"
     var showHelperText: Bool = true
     var showRecentlyUsed: Bool = true
-    var maxSuggestions: Int = 30
-    
+    var maxSuggestions: Int = 30  // Support all aviation zone suggestions
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Label and validation
             fieldHeader
-            
+
             // Input field with zone prefix
             inputFieldStack
-            
+
             // Helper text
             if showHelperText {
                 helperTextSection
             }
-            
+
             // Recently used locations
             if showRecentlyUsed && !recentLocations.isEmpty && userInput.isEmpty {
                 recentlyUsedSection
             }
-            
+
             // Suggestions
-            if showSuggestions && isFieldFocused && !cachedSuggestions.isEmpty {
+            if showSuggestions && isFieldFocused {
                 suggestionsSection
             }
         }
-        // PERFORMANCE: Single animation for state changes
+        // PERFORMANCE: Single animation for state changes, disabled for error states
         .animation(validationError ? nil : .easeOut(duration: 0.15), value: isFieldFocused)
         .onAppear {
             initializeField()
@@ -79,31 +68,31 @@ struct SmartLocationField: View {
             handleInputChange(from: oldValue, to: newValue)
         }
         .onChange(of: location) { oldValue, newValue in
+            // Sync binding changes to userInput for proper initialization
             syncLocationBindingToUserInput(newValue)
         }
     }
-    
-    // MARK: - Optimized Field Components
-    
+
+    // MARK: - Field Components
+
     private var fieldHeader: some View {
         HStack(spacing: 4) {
             Text("Location")
                 .font(.caption)
                 .foregroundColor(.secondary)
-            
-            // Use cached validation state instead of computing every time
-            if cachedValidationState.hasError {
+
+            if hasValidationError {
                 Image(systemName: "exclamationmark.circle.fill")
                     .font(.caption)
                     .foregroundColor(.red)
-            } else if cachedValidationState.isValid && !userInput.isEmpty {
+            } else if isFieldValid && !userInput.isEmpty {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundColor(.green)
             }
-            
+
             Spacer()
-            
+
             if !recentLocations.isEmpty {
                 Text("\(recentLocations.count) recent")
                     .font(.caption2)
@@ -111,20 +100,23 @@ struct SmartLocationField: View {
             }
         }
     }
-    
+
     private var inputFieldStack: some View {
         HStack(alignment: .center, spacing: 8) {
+            // Zone prefix chip
             ZonePrefixChip(zone: zonePrefix)
-            
+
+            // Text field
             locationTextField
-            
+
+            // Quick actions
             if canShowQuickActions {
                 quickActionButtons
             }
         }
         .padding(.vertical, 4)
     }
-    
+
     private var locationTextField: some View {
         TextField(placeholder, text: $userInput)
             .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -135,22 +127,21 @@ struct SmartLocationField: View {
                 finalizeLocation()
                 isFieldFocused = false
             }
-            .border(
-                validationError || cachedValidationState.hasError ? Color.red : Color.clear,
-                width: validationError || cachedValidationState.hasError ? 1 : 0
-            )
+            .border(validationError || hasValidationError ? Color.red : Color.clear, width: validationError || hasValidationError ? 1 : 0)
     }
-    
+
     @ViewBuilder
     private var quickActionButtons: some View {
         HStack(spacing: 4) {
+            // Clear button
             if !userInput.isEmpty {
                 Button(action: clearField) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.secondary)
                 }
             }
-            
+
+            // Paste button
             if userInput.isEmpty {
                 Button(action: pasteFromClipboard) {
                     Image(systemName: "doc.on.doc")
@@ -159,21 +150,20 @@ struct SmartLocationField: View {
             }
         }
     }
-    
-    // MARK: - Optimized Helper Sections
-    
+
+    // MARK: - Helper Sections
+
     private var helperTextSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // Use cached helper text instead of computing every time
-            if let helperText = cachedHelperText {
-                Text(helperText)
+            if let currentHelperText = getCurrentHelperText() {
+                Text(currentHelperText)
                     .font(.caption2)
                     .foregroundColor(.secondary)
                     .italic()
                     .transition(.opacity)
             }
-            
-            if cachedValidationState.hasError {
+
+            if hasValidationError {
                 ForEach(Array(validationErrors.values), id: \.self) { error in
                     Text(error)
                         .font(.caption2)
@@ -183,330 +173,335 @@ struct SmartLocationField: View {
             }
         }
     }
-    
+
     private var recentlyUsedSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Recent locations:")
                 .font(.caption2)
                 .foregroundColor(.secondary)
-            
+
             ScrollView(.horizontal, showsIndicators: false) {
-                // PERFORMANCE: Cache the prefix operation result
-                LazyHStack(spacing: 6) {
+                HStack(spacing: 6) {
                     ForEach(recentLocations.prefix(recentLocationsLimit), id: \.self) { recentLocation in
                         RecentlyUsedChip(
                             location: recentLocation,
                             onSelected: { selectRecentLocation(recentLocation) }
                         )
-                        .id(recentLocation)  // Explicit identity for better diffing
                     }
                 }
             }
             .frame(height: 30)
         }
     }
-    
+
     private var suggestionsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Suggestions:")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                // PERFORMANCE: Use cached suggestions instead of recomputing
-                LazyHStack(spacing: 8) {
-                    ForEach(cachedSuggestions, id: \.id) { suggestion in
-                        // Memoized suggestion pill wrapper
-                        MemoizedSuggestionPill(
-                            suggestion: suggestion,
-                            userInput: $userInput,
-                            zonePrefix: zonePrefix,
-                            isFieldFocused: _isFieldFocused,
-                            onSelected: { selectedSuggestion in
-                                handleSuggestionSelected(selectedSuggestion)
-                                recordSelection(selectedSuggestion)
-                            }
-                        )
+        let suggestions = getFilteredSuggestions()
+
+        return VStack(alignment: .leading, spacing: 8) {
+            if !suggestions.isEmpty {
+                Text("Suggestions:")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    // PERFORMANCE: Use LazyHStack for better memory efficiency
+                    LazyHStack(spacing: 8) {
+                        ForEach(suggestions, id: \.id) { suggestion in
+                            LocationSuggestionPill(
+                                suggestion: suggestion,
+                                userLocationInput: $userInput,
+                                zonePrefix: zonePrefix,
+                                isTextFieldFocused: _isFieldFocused,
+                                onSuggestionSelected: { selectedSuggestion in
+                                    handleSuggestionSelected(selectedSuggestion)
+                                    recordSelection(selectedSuggestion)
+                                },
+                                animationEnabled: false  // PERFORMANCE: Disable individual pill animations
+                            )
+                        }
                     }
                 }
             }
         }
     }
-    
-    // MARK: - Optimized Data Management
-    
+
+    // MARK: - Data Management
+
     private func initializeField() {
-        // Parse initial location
+        // Handle zone prefix logic correctly - PRESERVE USER SPACES
         if !location.isEmpty {
+            // Check if location already has zone prefix
             if location.hasPrefix("\(zonePrefix) ") {
+                // Location has prefix, extract user part BUT PRESERVE TRAILING SPACES
                 let rawInputPart = String(location.dropFirst(zonePrefix.count + 1))
+                // Trim only leading whitespace between prefix and user input, preserve trailing user spaces
                 let trimSet = CharacterSet.whitespaces
                 var startIndex = rawInputPart.startIndex
+                // Find first non-whitespace character
                 while startIndex < rawInputPart.endIndex && trimSet.contains(rawInputPart.unicodeScalars[startIndex]) {
                     startIndex = rawInputPart.index(after: startIndex)
                 }
                 let inputPart = String(rawInputPart[startIndex...])
-                userInput = inputPart
+                userInput = inputPart  // Keep as-is, preserve user's trailing spaces
             } else {
+                // Location doesn't have prefix, use as-is
                 userInput = location.trimmingCharacters(in: .whitespaces)
             }
         } else {
+            // Empty location, start with empty user input (zone prefix will be visual only)
             userInput = ""
         }
-        
-        // Initialize caches
+
+        // Load recent locations for this zone
         loadRecentLocations()
-        updateCachedSuggestions()
-        updateCachedHelperText()
+
+        // Initial validation
         validateInput()
     }
-    
+
     private func cleanup() {
+        // PERFORMANCE: Cancel DispatchWorkItem instead of Timer invalidation
         validationWorkItem?.cancel()
         validationWorkItem = nil
-        suggestionUpdateWorkItem?.cancel()
-        suggestionUpdateWorkItem = nil
-        
+
+        // Save final location
         updateLocation()
     }
-    
-    private func handleInputChange(from oldValue: String, to newValue: String) {
-        updateLocation()
-        
-        // PERFORMANCE: Debounced validation
-        validationWorkItem?.cancel()
-        let workItem = DispatchWorkItem {
-            Task { @MainActor in
-                self.validateInput()
-            }
-        }
-        validationWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + validationDebounceInterval, execute: workItem)
-        
-        // PERFORMANCE: Separate debounced suggestion update with faster interval
-        suggestionUpdateWorkItem?.cancel()
-        let suggestionWork = DispatchWorkItem { [self] in
-            Task { @MainActor in
-                self.updateCachedSuggestions()
-                self.updateCachedHelperText()
-            }
-        }
-        suggestionUpdateWorkItem = suggestionWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + suggestionDebounceInterval, execute: suggestionWork)
-    }
-    
-    // MARK: - Caching Methods
-    
-    private func updateCachedSuggestions() {
-        // Only update if input or zone changed
-        guard userInput != lastInputForSuggestions || zonePrefix != lastZoneForSuggestions else {
-            return
-        }
-        
-        lastInputForSuggestions = userInput
-        lastZoneForSuggestions = zonePrefix
-        
-        // Compute suggestions once and cache
-        let allSuggestions = engine.getSuggestions(for: zonePrefix)
-        
-        if userInput.isEmpty {
-            cachedSuggestions = Array(allSuggestions.prefix(maxSuggestions))
-        } else {
-            let filtered = allSuggestions.filter { suggestion in
-                suggestion.text.localizedCaseInsensitiveContains(userInput) ||
-                userInput.localizedCaseInsensitiveContains(suggestion.text)
-            }
-            cachedSuggestions = Array(filtered.prefix(maxSuggestions))
-        }
-    }
-    
-    private func updateCachedHelperText() {
-        // Use stored suggestion if available
-        if let storedSuggestion = lastSelectedSuggestion {
-            cachedHelperText = storedSuggestion.helperText
-            return
-        }
-        
-        // Fall back to computed helper text
-        let trimmedInput = userInput.trimmingCharacters(in: .whitespaces)
-        if trimmedInput.isEmpty {
-            cachedHelperText = nil
-            return
-        }
-        
-        let lastWord = trimmedInput.split(separator: " ").last?.uppercased() ?? ""
-        cachedHelperText = engine.getHelperText(for: lastWord, in: zonePrefix)
-    }
-    
-    private func updateCachedValidationState() {
-        cachedValidationState = ValidationState(
-            hasError: !validationErrors.isEmpty,
-            isValid: validationErrors.isEmpty && !userInput.trimmingCharacters(in: .whitespaces).isEmpty
-        )
-    }
-    
-    // MARK: - Other Methods (unchanged but using cached values)
-    
+
     private func loadRecentLocations() {
         recentLocations = engine.getFrequentlyUsed(for: zonePrefix, limit: recentLocationsLimit)
     }
-    
+
     private func updateLocation() {
         let fullLocation = userInput.isEmpty ? "" : "\(zonePrefix) \(userInput)"
         location = fullLocation
         formData.location = fullLocation
     }
-    
+
     private func finalizeLocation() {
         updateLocation()
-        if cachedValidationState.isValid {
+        if isFieldValid {
             saveToRecent()
             isFieldFocused = false
         }
     }
-    
+
     private func saveToRecent() {
         guard !userInput.isEmpty else { return }
-        
+
         var updatedRecent = recentLocations
         updatedRecent.removeAll { $0 == userInput }
         updatedRecent.insert(userInput, at: 0)
-        
+
         if updatedRecent.count > recentLocationsLimit {
             updatedRecent = Array(updatedRecent.prefix(recentLocationsLimit))
         }
-        
+
         recentLocations = updatedRecent
+
+        // Update engine
         engine.recordUsage(zone: zonePrefix, suggestion: userInput)
     }
-    
-    private func handleSuggestionSelected(_ suggestion: LocationSuggestionEngine.LocationSuggestion) {
-        lastSelectedSuggestion = suggestion
+
+    // MARK: - Input Handling
+
+    private func handleInputChange(from oldValue: String, to newValue: String) {
+        // Update location immediately for form
+        updateLocation()
+
+        // PERFORMANCE: Use DispatchWorkItem for debounced validation
+        // Cancel any pending validation
+        validationWorkItem?.cancel()
         
+        // Create new work item for validation
+        let workItem = DispatchWorkItem {
+            // No need for [weak self] here - SmartLocationField is a struct (value type)
+            // Structs don't create retain cycles since they're copied, not referenced
+            Task { @MainActor in
+                self.validateInput()
+                // Note: Suggestion updates happen automatically via state changes
+            }
+        }
+        
+        validationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + validationDebounceInterval, execute: workItem)
+    }
+
+    private func getFilteredSuggestions() -> [LocationSuggestionEngine.LocationSuggestion] {
+        let allSuggestions = engine.getSuggestions(for: zonePrefix)
+
+        if userInput.isEmpty {
+            return Array(allSuggestions.prefix(maxSuggestions))
+        } else {
+            let filtered = allSuggestions.filter { suggestion in
+                suggestion.text.localizedCaseInsensitiveContains(userInput) ||
+                userInput.localizedCaseInsensitiveContains(suggestion.text)
+            }
+            return Array(filtered.prefix(maxSuggestions))
+        }
+    }
+
+    private func getCurrentHelperText() -> String? {
+        // Priority 1: Use the last selected suggestion's helper text (most reliable)
+        if let storedSuggestion = lastSelectedSuggestion {
+            return storedSuggestion.helperText
+        }
+
+        // Priority 2: Fall back to dynamic string parsing (for backward compatibility with typing)
+        let trimmedInput = userInput.trimmingCharacters(in: .whitespaces)
+        if trimmedInput.isEmpty {
+            return nil
+        }
+
+        let lastWord = trimmedInput.split(separator: " ").last?.uppercased() ?? ""
+        return engine.getHelperText(for: lastWord, in: zonePrefix)
+    }
+
+    private func handleSuggestionSelected(_ suggestion: LocationSuggestionEngine.LocationSuggestion) {
+        // Store the last selected suggestion for helper text
+        lastSelectedSuggestion = suggestion
+
+        // Set the suggestion text - replace entire input, don't append
         let baseText = suggestion.text
         if suggestion.needsAdditionalInput {
+            // For suggestions that need additional input, just set the base text and add space
             userInput = baseText + " "
-            isFieldFocused = true
+            isFieldFocused = true // Keep focus for additional input
         } else {
+            // For complete suggestions, set the final text and finalize
             userInput = baseText
             finalizeLocation()
         }
-        
+
+        // Clear validation errors on selection
         validationErrors.removeValue(forKey: "input")
-        updateCachedValidationState()
-        updateCachedHelperText()
     }
-    
+
     private func recordSelection(_ suggestion: LocationSuggestionEngine.LocationSuggestion) {
         engine.recordUsage(zone: zonePrefix, suggestion: suggestion.text)
-        loadRecentLocations()
+        loadRecentLocations() // Refresh recent list
     }
-    
-    private func syncLocationBindingToUserInput(_ newLocation: String) {
-        let emptinessCheck = newLocation.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        if !emptinessCheck.isEmpty {
-            if newLocation.hasPrefix("\(zonePrefix) ") {
-                let rawInputPart = String(newLocation.dropFirst(zonePrefix.count + 1))
-                let trimSet = CharacterSet.whitespaces
-                var startIndex = rawInputPart.startIndex
-                while startIndex < rawInputPart.endIndex, trimSet.contains(rawInputPart.unicodeScalars[startIndex]) {
-                    startIndex = rawInputPart.index(after: startIndex)
+
+        /// Sync location binding changes to userInput for proper initialization
+        private func syncLocationBindingToUserInput(_ newLocation: String) {
+            // IMPORTANT: do not trim trailing spaces globally; they are meaningful for typing after a pill.
+            // Use a trimmed copy ONLY to check "emptiness".
+            let emptinessCheck = newLocation.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !emptinessCheck.isEmpty {
+                if newLocation.hasPrefix("\(zonePrefix) ") {
+                    // Extract the user portion AFTER the "<ZONE> " prefix, preserving trailing spaces
+                    let rawInputPart = String(newLocation.dropFirst(zonePrefix.count + 1))
+
+                    // Remove ONLY leading whitespace inside the user part; keep trailing spaces intact.
+                    let trimSet = CharacterSet.whitespaces
+                    var startIndex = rawInputPart.startIndex
+                    while startIndex < rawInputPart.endIndex, trimSet.contains(rawInputPart.unicodeScalars[startIndex]) {
+                        startIndex = rawInputPart.index(after: startIndex)
+                    }
+
+                    let inputPart = String(rawInputPart[startIndex...])
+
+                    if inputPart != userInput {
+                        userInput = inputPart
+                    }
+                } else if newLocation != userInput {
+                    // No prefix case; keep as-is (including trailing spaces)
+                    userInput = newLocation
                 }
-                let inputPart = String(rawInputPart[startIndex...])
-                if inputPart != userInput {
-                    userInput = inputPart
-                }
-            } else if newLocation != userInput {
-                userInput = newLocation
+            } else if !userInput.isEmpty {
+                userInput = ""
             }
-        } else if !userInput.isEmpty {
-            userInput = ""
+
+            // Keep the form data consistent with the raw location (preserve spaces)
+            formData.location = newLocation
         }
-        
-        formData.location = newLocation
-    }
-    
+
+    // MARK: - Validation
+
     private func validateInput() {
         let inputToValidate = userInput.trimmingCharacters(in: .whitespaces)
-        
+
+        // Clear previous errors
         validationErrors.removeValue(forKey: "input")
-        
+
+        // Check length
         if inputToValidate.isEmpty {
-            updateCachedValidationState()
+            // Empty is OK unless we're in finalization
             return
         }
-        
+
         if inputToValidate.count < 2 {
             validationErrors["input"] = "Location too short"
-            updateCachedValidationState()
             return
         }
-        
+
         if inputToValidate.count > 100 {
             validationErrors["input"] = "Location too long"
-            updateCachedValidationState()
             return
         }
-        
+
+        // Basic pattern validation
         let allowedCharacters = CharacterSet.alphanumerics
             .union(CharacterSet.punctuationCharacters)
             .union(CharacterSet.whitespaces)
-        
+
         let invalidChars = inputToValidate.unicodeScalars.filter { !allowedCharacters.contains($0) }
-        
+
         if !invalidChars.isEmpty {
             validationErrors["input"] = "Contains invalid characters"
-            updateCachedValidationState()
             return
         }
-        
+
+        // Custom zone-specific validation
         if let zoneError = validateZoneSpecificInput(inputToValidate) {
             validationErrors["input"] = zoneError
+            return
         }
-        
-        updateCachedValidationState()
+
         lastValidationTime = Date()
     }
-    
+
     private func validateZoneSpecificInput(_ input: String) -> String? {
+        // Add zone-specific validation rules as needed
         switch zonePrefix {
         case "A DECK":
+            // Check for seat format consistency
             let seatPattern = #"(\d+[A-Z]{1,2})"#
             let hasSeats = try? NSRegularExpression(pattern: seatPattern, options: [])
                 .matches(in: input.uppercased(), options: [], range: NSRange(location: 0, length: input.count))
                 .isEmpty == false
-            
+
             if input.uppercased().contains("SEAT") && !(hasSeats ?? false) {
                 return "Seat locations should include seat number (e.g., 12A)"
             }
-            
+
         case "FLIGHT DECK":
+            // Check for instrument naming consistency
             let validInstrumentParts = ["DISPLAY", "PANEL", "WINDOW", "CDU", "BUTTON", "SWITCH", "LIGHT"]
             let inputUpper = input.uppercased()
             let hasValidPart = validInstrumentParts.contains { inputUpper.contains($0) }
-            
+
             if !hasValidPart && inputUpper.count > 3 {
                 return "Use standard flight deck terminology (DISPLAY, PANEL, WINDOW, etc.)"
             }
-            
+
         default:
             break
         }
-        
+
         return nil
     }
-    
+
+    // MARK: - Quick Actions
+
     private func clearField() {
         userInput = ""
         validationErrors.removeAll()
-        updateCachedValidationState()
-        updateCachedHelperText()
-        updateCachedSuggestions()
         updateLocation()
-        isFieldFocused = true
+        isFieldFocused = true // Keep focus for new input
     }
-    
+
     private func pasteFromClipboard() {
         #if os(iOS)
         if let pasteboardString = UIPasteboard.general.string {
@@ -514,20 +509,32 @@ struct SmartLocationField: View {
             updateLocation()
         }
         #endif
-        
+        // macOS version would need appropriate pasteboard API
+
         isFieldFocused = true
     }
-    
+
     private func selectRecentLocation(_ location: String) {
         userInput = location
         finalizeLocation()
-        
+
+        // Move to top of recent list
         var updatedRecent = recentLocations
         updatedRecent.removeAll { $0 == location }
         updatedRecent.insert(location, at: 0)
         recentLocations = updatedRecent
     }
-    
+
+    // MARK: - Computed Properties
+
+    private var hasValidationError: Bool {
+        return !validationErrors.isEmpty
+    }
+
+    private var isFieldValid: Bool {
+        return !hasValidationError && !userInput.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     private var canShowQuickActions: Bool {
         return isFieldFocused
     }
@@ -535,12 +542,10 @@ struct SmartLocationField: View {
 
 // MARK: - Supporting Structures
 
-/// Simple data model for location form data
 struct LocationFormData {
     var location: String = ""
 }
 
-/// Reusable chip for showing recently used locations
 struct RecentlyUsedChip: View {
     let location: String
     let onSelected: () -> Void
@@ -580,48 +585,30 @@ struct RecentlyUsedChip: View {
     }
 }
 
-// MARK: - Performance Optimization Structures
+// NOTE: View components removed to avoid Swift 6 redeclaration error
+// They are now defined in LocationSuggestionPill.swift as canonical versions
 
-/// Cached validation state to prevent repeated computation
-struct ValidationState: Equatable {
-    var hasError: Bool = false
-    var isValid: Bool = false
-}
+// MARK: - Preview
 
-/// Memoized wrapper for suggestion pills to prevent unnecessary redraws
-struct MemoizedSuggestionPill: View, Equatable {
-    let suggestion: LocationSuggestionEngine.LocationSuggestion
-    @Binding var userInput: String
-    let zonePrefix: String?
-    @FocusState var isFieldFocused: Bool
-    let onSelected: (LocationSuggestionEngine.LocationSuggestion) -> Void
-    
-    var body: some View {
-        LocationSuggestionPill(
-            suggestion: suggestion,
-            userLocationInput: $userInput,
-            zonePrefix: zonePrefix,
-            isTextFieldFocused: _isFieldFocused,
-            onSuggestionSelected: onSelected,
-            animationEnabled: false  // Disable animations for performance
-        )
-        .id(suggestion.id)  // Explicit stable identity
-    }
-    
-    // PERFORMANCE: Equatable conformance for efficient diffing
-    static func == (lhs: MemoizedSuggestionPill, rhs: MemoizedSuggestionPill) -> Bool {
-        return lhs.suggestion.id == rhs.suggestion.id &&
-               lhs.zonePrefix == rhs.zonePrefix
-    }
-}
+struct SmartLocationField_Previews: PreviewProvider {
+    static var previews: some View {
+        VStack(spacing: 20) {
+            SmartLocationField(
+                location: .constant("A DECK SEAT 12A"),
+                zonePrefix: "A DECK"
+            )
 
-// MARK: - Make LocationSuggestion Equatable for better diffing
+            SmartLocationField(
+                location: .constant(""),
+                zonePrefix: "FLIGHT DECK"
+            )
 
-extension LocationSuggestionEngine.LocationSuggestion: Equatable {
-    public static func == (lhs: LocationSuggestionEngine.LocationSuggestion, 
-                          rhs: LocationSuggestionEngine.LocationSuggestion) -> Bool {
-        return lhs.id == rhs.id &&
-               lhs.text == rhs.text &&
-               lhs.type == rhs.type
+            SmartLocationField(
+                location: .constant("MLG TIRE 1"),
+                zonePrefix: "MLG"
+            )
+        }
+        .padding()
+        .previewLayout(.sizeThatFits)
     }
 }

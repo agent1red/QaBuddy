@@ -10,9 +10,22 @@
 		FED7205E2E5CEC5C0077170F /* QaBuddy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = QaBuddy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		FED4E7052E6A240F004D0A64 /* Exceptions for "QaBuddy" folder in "QaBuddy" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				SmartLocationField.backup.swift,
+			);
+			target = FED7205D2E5CEC5C0077170F /* QaBuddy */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		FED720602E5CEC5C0077170F /* QaBuddy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				FED4E7052E6A240F004D0A64 /* Exceptions for "QaBuddy" folder in "QaBuddy" target */,
+			);
 			path = QaBuddy;
 			sourceTree = "<group>";
 		};
