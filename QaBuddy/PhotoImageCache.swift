@@ -23,10 +23,10 @@ final class PhotoImageCache: NSObject, NSCacheDelegate {
     private var imageItemCount: Int = 0
 
     // Memory limits (will help reduce battery drain from excessive caching)
-    private let thumbnailCountLimit = 100  // Limit thumbnail cache to 100 images
-    private let imageCountLimit = 20       // Limit full-image cache to 20 images
-    private let thumbnailMemoryLimit = 20 * 1024 * 1024  // 20MB for thumbnails
-    private let imageMemoryLimit = 100 * 1024 * 1024     // 100MB for full images
+    private let thumbnailCountLimit = 50   // REDUCED: Limit thumbnail cache to 50 images (was 100)
+    private let imageCountLimit = 10        // REDUCED: Limit full-image cache to 10 images (was 20)
+    private let thumbnailMemoryLimit = 10 * 1024 * 1024  // REDUCED: 10MB for thumbnails (was 20MB)
+    private let imageMemoryLimit = 50 * 1024 * 1024      // REDUCED: 50MB for full images (was 100MB)
 
     private override init() {
         super.init()

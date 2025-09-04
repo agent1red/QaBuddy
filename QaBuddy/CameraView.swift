@@ -33,7 +33,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
 
     // BATTERY OPTIMIZATION: Intelligent session management
     private var idleTimer: Timer?
-    private let idleTimeout: TimeInterval = 30.0  // 30 seconds idle timeout
+    private let idleTimeout: TimeInterval = 10.0  // REDUCED: 10 seconds idle timeout (was 30.0)
     private var resumeButton: UIButton?
     private var cameraPausedForIdle = false
 
@@ -74,6 +74,10 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     private var currentZoomFactor: CGFloat = 1.0
     private var zoomIndicatorLabel: UILabel?
     private var zoomHideWorkItem: DispatchWorkItem?
+    
+    // BATTERY OPTIMIZATION: Throttle zoom updates
+    private var lastZoomUpdate = Date()
+    private let zoomUpdateInterval: TimeInterval = 0.05 // 20 FPS max for zoom updates
 
     // Reliability: capture throttling and state
     private var inFlightCapture = false
@@ -477,6 +481,9 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
 
         Logger.info("⏸️ Camera paused for idle - stopping capture session to save battery")
 
+        // BATTERY OPTIMIZATION: Pause volume detection when camera is idle
+        pauseVolumeDetection()
+        
         // Stop the camera session
         captureSession.stopRunning()
         cameraPausedForIdle = true
@@ -547,11 +554,15 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
                 DispatchQueue.main.async {
                     self?.cameraPausedForIdle = false
                     self?.startIdleTimer()
+                    // BATTERY OPTIMIZATION: Resume volume detection when camera resumes
+                    self?.resumeVolumeDetection()
                 }
             }
         } else {
             cameraPausedForIdle = false
             startIdleTimer()
+            // BATTERY OPTIMIZATION: Resume volume detection when camera resumes
+            resumeVolumeDetection()
         }
     }
 
@@ -624,6 +635,10 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
             initialZoomFactor = currentZoomFactor
             showZoomIndicator()
         case .changed:
+            // BATTERY OPTIMIZATION: Throttle zoom updates to reduce processing
+            guard Date().timeIntervalSince(lastZoomUpdate) > zoomUpdateInterval else { return }
+            lastZoomUpdate = Date()
+            
             var newZoom = initialZoomFactor * gesture.scale
             newZoom = max(min(newZoom, maxSupported), minSupported)
             setZoom(to: newZoom, animated: false)

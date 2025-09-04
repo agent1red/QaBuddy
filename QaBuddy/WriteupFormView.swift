@@ -45,7 +45,7 @@ struct WriteupFormView: View {
     @State private var consecutiveSaveFailures = 0
     @State private var autoSavePausedUntil: Date?
     @State private var lastSaveTimestamp: Date?
-    private let saveDebounceInterval: TimeInterval = 2.0  // Reduced from 30s to 2s for better UX
+    private let saveDebounceInterval: TimeInterval = 10.0  // INCREASED: 10s to reduce heat (was 2.0)
 
     // Draft cache to prevent constant DB queries
     @State private var cachedDraftId: UUID?
