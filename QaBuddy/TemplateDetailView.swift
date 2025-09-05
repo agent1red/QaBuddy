@@ -6,77 +6,94 @@
 import SwiftUI
 import CoreData
 
+// Import statements for missing types
+// (Add once we know the correct import paths)
+
 struct TemplateDetailView: View {
     @ObservedObject var template: InspectionTemplate
     @StateObject private var templateManager = TemplateManager.shared
     @StateObject private var sessionManager = SessionManager.shared
-    // Use item-based sheet to avoid flicker and wrong target
-    @State private var editingTemplate: InspectionTemplate? = nil
+    // Single sheet driver to serialize presentations
+    private enum ActiveSheet: Identifiable, Equatable {
+        case edit(InspectionTemplate)
+        case duplicate
+        case writeup
+
+        var id: String {
+            switch self {
+            case .edit(let t): return "edit_\(t.objectID.uriRepresentation().absoluteString)"
+            case .duplicate: return "duplicate"
+            case .writeup: return "writeup"
+            }
+        }
+    }
+    @State private var activeSheet: ActiveSheet? = nil
+    // Delete confirmation separate to avoid conflicts
     @State private var showingDeleteConfirmation = false
-    @State private var showingDuplicateAlert = false
     @State private var duplicateName = ""
     @State private var stableFieldConfigurations: [TemplateFieldConfiguration] = []
     @State private var sessionTitle: String = ""
-    @State private var showingWriteupForm = false
+    // write-up now driven via activeSheet
     @State private var selectedTab: Int? = nil // For navigation callback
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        Form {
-            // Template Information Section
-            Section(header: Text("Template Information")) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(template.name ?? "Untitled Template")
-                                .font(.headline)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Template Information Section
+                Section(header: Text("Template Information")) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(template.name ?? "Untitled Template")
+                                    .font(.headline)
 
-                            if template.isBuiltIn {
-                                Image(systemName: "star.fill")
-                                    .foregroundColor(.yellow)
-                                    .font(.caption)
-                            } else {
-                                Image(systemName: "pencil.circle.fill")
-                                    .foregroundColor(.blue)
-                                    .font(.caption)
+                                if template.isBuiltIn {
+                                    Image(systemName: "star.fill")
+                                        .foregroundColor(.yellow)
+                                        .font(.caption)
+                                } else {
+                                    Image(systemName: "pencil.circle.fill")
+                                        .foregroundColor(.blue)
+                                        .font(.caption)
+                                }
                             }
-                        }
 
-                        HStack {
-                            Text(templateTypeBadge)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 2)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(templateTypeColor.opacity(0.2))
-                                )
-                                .foregroundColor(templateTypeColor)
+                            HStack {
+                                Text(templateTypeBadge)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 2)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(templateTypeColor.opacity(0.2))
+                                    )
+                                    .foregroundColor(templateTypeColor)
 
-                            Spacer()
+                                Spacer()
 
-                            if let fieldCount = fieldCountText {
-                                Text(fieldCount)
-                                    .font(.subheadline)
+                                if let fieldCount = fieldCountText {
+                                    Text(fieldCount)
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+
+                            if let lastModified = template.lastModified {
+                                Text("Modified \(lastModified.formatted(.relative(presentation: .named)))")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            if let createdDate = template.createdDate {
+                                Text("Created \(createdDate.formatted(.dateTime.month().day().year()))")
+                                    .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
                         }
-
-                        if let lastModified = template.lastModified {
-                            Text("Modified \(lastModified.formatted(.relative(presentation: .named)))")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-
-                        if let createdDate = template.createdDate {
-                            Text("Created \(createdDate.formatted(.dateTime.month().day().year()))")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
                     }
                 }
-            }
 
             // Field Configuration Section
             Section(header: Text("Field Configuration")) {
@@ -142,21 +159,30 @@ struct TemplateDetailView: View {
                     // Horizontal action bar at bottom: Edit | Duplicate | Delete
                     HStack(spacing: 12) {
                         Button(action: { presentEdit() }) {
-                            HStack { Image(systemName: "pencil.circle.fill"); Text("Edit Template") }
-                                .frame(maxWidth: .infinity)
+                            HStack {
+                                Image(systemName: "pencil.circle.fill")
+                                Text("Edit Template")
+                            }
                         }
+                        .frame(maxWidth: .infinity)
                         .foregroundColor(.blue)
 
                         Button(action: { presentDuplicate() }) {
-                            HStack { Image(systemName: "doc.on.doc.fill"); Text("Duplicate Template") }
-                                .frame(maxWidth: .infinity)
+                            HStack {
+                                Image(systemName: "doc.on.doc.fill")
+                                Text("Duplicate Template")
+                            }
                         }
+                        .frame(maxWidth: .infinity)
                         .foregroundColor(.green)
 
                         Button(action: { presentDeleteConfirmation() }) {
-                            HStack { Image(systemName: "trash.fill"); Text("Delete Template") }
-                                .frame(maxWidth: .infinity)
+                            HStack {
+                                Image(systemName: "trash.fill")
+                                Text("Delete Template")
+                            }
                         }
+                        .frame(maxWidth: .infinity)
                         .foregroundColor(.red)
                     }
                 } else {
@@ -175,7 +201,7 @@ struct TemplateDetailView: View {
                     .padding(.vertical, 8)
 
                     // Quick duplicate option for built-in templates
-                    Button(action: showDuplicateDialog) {
+                    Button(action: presentDuplicate) {
                         HStack {
                             Image(systemName: "plus.circle.fill")
                             Text("Create Custom Copy")
@@ -183,7 +209,10 @@ struct TemplateDetailView: View {
                     }
                     .foregroundColor(.accentColor)
                 }
+                }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
         }
         .navigationTitle("Template Details")
         .navigationBarTitleDisplayMode(.inline)
@@ -206,32 +235,46 @@ struct TemplateDetailView: View {
                 }
             }
         }
-        // Builder sheet presented for either editing current template or newly-created duplicate
-        .sheet(item: $editingTemplate) { editTarget in
-            TemplateBuilderView(template: editTarget)
-        }
-        .alert("Duplicate Template", isPresented: $showingDuplicateAlert, actions: {
-            TextField("Template Name", text: $duplicateName)
-            Button("Cancel", role: .cancel) { }
-            Button("Duplicate") {
-                Task { await duplicateTemplate() }
-            }
-        }, message: {
-            Text("Enter a name for the duplicated template")
-        })
-        .sheet(isPresented: $showingWriteupForm) {
-            WriteupFormView(template: template, selectedTab: $selectedTab)
-        }
-        .alert("Delete Template", isPresented: $showingDeleteConfirmation, actions: {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                Task {
-                    await deleteTemplate()
+        // Single sheet for edit, duplicate, and write-up
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .edit(let editTarget):
+                TemplateBuilderView(template: editTarget)
+            case .duplicate:
+                NavigationView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Enter a name for the duplicated template")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        TextField("Template Name", text: $duplicateName)
+                            .textFieldStyle(.roundedBorder)
+
+                        Spacer()
+
+                        HStack {
+                            Button("Cancel") { activeSheet = nil }
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Button("Duplicate") { Task { await duplicateTemplate() } }
+                                .foregroundColor(.accentColor)
+                                .disabled(duplicateName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                    .padding()
+                    .navigationTitle("Duplicate Template")
+                    .navigationBarTitleDisplayMode(.inline)
                 }
+            case .writeup:
+                WriteupFormView(template: template, selectedTab: $selectedTab)
             }
-        }, message: {
+        }
+        // Delete confirmation using confirmationDialog to avoid alert conflicts
+        .confirmationDialog("Delete Template", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { Task { await deleteTemplate() } }
+            Button("Cancel", role: .cancel) { }
+        } message: {
             Text("Are you sure you want to delete '\(template.name ?? "this template")'? This action cannot be undone.")
-        })
+        }
         .onAppear {
             // Capture stable field configurations on view appear to prevent rapid recalculation
             // This fixes the rapid animation issue researched from SwiftUI/Core Data ForEach problems
@@ -280,68 +323,65 @@ struct TemplateDetailView: View {
     // MARK: - Actions
 
     private func useTemplate() {
-        // Present the write-up form in a sheet
-        print("🗂️ Presenting write-up form for template: \(template.name ?? "Unknown")")
-        showingWriteupForm = true
+        activeSheet = .writeup
     }
 
     private func showDuplicateDialog() {
         duplicateName = "\(template.name ?? "Template") (Copy)"
-        showingDuplicateAlert = true
+        activeSheet = .duplicate
     }
 
     // Centralized presentation helpers to avoid modal race conditions
     private func presentEdit() {
-        // Dismiss any alerts first
-        showingDuplicateAlert = false
         showingDeleteConfirmation = false
-        editingTemplate = template
+        activeSheet = .edit(template)
     }
 
     private func presentDuplicate() {
-        // Ensure delete alert isn’t also pending
         showingDeleteConfirmation = false
-        editingTemplate = nil
-        showDuplicateDialog()
+        duplicateName = "\(template.name ?? "Template") (Copy)"
+        activeSheet = .duplicate
     }
 
     private func presentDeleteConfirmation() {
-        // Ensure duplicate alert isn’t also pending
-        showingDuplicateAlert = false
-        editingTemplate = nil
-        showingDeleteConfirmation = true
+        if activeSheet != nil {
+            activeSheet = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                self.showingDeleteConfirmation = true
+            }
+        } else {
+            showingDeleteConfirmation = true
+        }
     }
 
     private func duplicateTemplate() async {
         let name = duplicateName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
 
-        // Ensure no edit sheet is active when duplicating
-        editingTemplate = nil
+        // Ensure no sheet is active when switching to edit of the new copy
+        activeSheet = nil
 
         if let newTemplate = await templateManager.createCustomTemplate(name: name,
                                                                         basedOn: template,
                                                                         fieldConfigs: nil) {
-            print("✅ Template duplicated successfully: \(name)")
             // Open the builder on the new copy for immediate edits
-            editingTemplate = newTemplate
-        } else {
-            print("❌ Failed to duplicate template")
+            DispatchQueue.main.async {
+                activeSheet = nil
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                activeSheet = .edit(newTemplate)
+            }
         }
     }
 
     private func deleteTemplate() async {
         // Ensure no conflicting sheets are active
-        editingTemplate = nil
-        showingDuplicateAlert = false
-        showingWriteupForm = false
+        activeSheet = nil
+        showingDeleteConfirmation = false
 
         if await templateManager.deleteTemplate(template) {
-            print("✅ Template deleted successfully: \(template.name ?? "Unknown")")
             // Explicitly dismiss to clear navigation selection and avoid re-presentations
             dismiss()
-        } else {
-            print("❌ Failed to delete template")
         }
     }
 
