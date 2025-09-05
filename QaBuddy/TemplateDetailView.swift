@@ -10,7 +10,8 @@ struct TemplateDetailView: View {
     @ObservedObject var template: InspectionTemplate
     @StateObject private var templateManager = TemplateManager.shared
     @StateObject private var sessionManager = SessionManager.shared
-    @State private var showingTemplateBuilder = false
+    // Use item-based sheet to avoid flicker and wrong target
+    @State private var editingTemplate: InspectionTemplate? = nil
     @State private var showingDeleteConfirmation = false
     @State private var showingDuplicateAlert = false
     @State private var duplicateName = ""
@@ -138,36 +139,23 @@ struct TemplateDetailView: View {
 
                 // Custom Template Actions
                 if !template.isBuiltIn {
-                    VStack(spacing: 12) {
-
-                        // Edit Button
-                        Button(action: {
-                            showingTemplateBuilder = true
-                        }) {
-                            HStack {
-                                Image(systemName: "pencil.circle.fill")
-                                Text("Edit Template")
-                            }
+                    // Horizontal action bar at bottom: Edit | Duplicate | Delete
+                    HStack(spacing: 12) {
+                        Button(action: { presentEdit() }) {
+                            HStack { Image(systemName: "pencil.circle.fill"); Text("Edit Template") }
+                                .frame(maxWidth: .infinity)
                         }
                         .foregroundColor(.blue)
 
-                        // Duplicate Button
-                        Button(action: showDuplicateDialog) {
-                            HStack {
-                                Image(systemName: "doc.on.doc.fill")
-                                Text("Duplicate Template")
-                            }
+                        Button(action: { presentDuplicate() }) {
+                            HStack { Image(systemName: "doc.on.doc.fill"); Text("Duplicate Template") }
+                                .frame(maxWidth: .infinity)
                         }
                         .foregroundColor(.green)
 
-                        // Delete Button
-                        Button(action: {
-                            showingDeleteConfirmation = true
-                        }) {
-                            HStack {
-                                Image(systemName: "trash.fill")
-                                Text("Delete Template")
-                            }
+                        Button(action: { presentDeleteConfirmation() }) {
+                            HStack { Image(systemName: "trash.fill"); Text("Delete Template") }
+                                .frame(maxWidth: .infinity)
                         }
                         .foregroundColor(.red)
                     }
@@ -203,12 +191,12 @@ struct TemplateDetailView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !template.isBuiltIn {
                     Menu {
-                        Button(action: showDuplicateDialog) {
+                        Button(action: presentDuplicate) {
                             Label("Duplicate Template", systemImage: "doc.on.doc")
                         }
 
                         Button(role: .destructive, action: {
-                            showingDeleteConfirmation = true
+                            presentDeleteConfirmation()
                         }) {
                             Label("Delete Template", systemImage: "trash")
                         }
@@ -218,16 +206,15 @@ struct TemplateDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingTemplateBuilder) {
-            TemplateBuilderView(template: template)
+        // Builder sheet presented for either editing current template or newly-created duplicate
+        .sheet(item: $editingTemplate) { editTarget in
+            TemplateBuilderView(template: editTarget)
         }
         .alert("Duplicate Template", isPresented: $showingDuplicateAlert, actions: {
             TextField("Template Name", text: $duplicateName)
             Button("Cancel", role: .cancel) { }
             Button("Duplicate") {
-                Task {
-                    await duplicateTemplate()
-                }
+                Task { await duplicateTemplate() }
             }
         }, message: {
             Text("Enter a name for the duplicated template")
@@ -303,22 +290,56 @@ struct TemplateDetailView: View {
         showingDuplicateAlert = true
     }
 
-    private func duplicateTemplate() async {
-        guard !duplicateName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return
-        }
+    // Centralized presentation helpers to avoid modal race conditions
+    private func presentEdit() {
+        // Dismiss any alerts first
+        showingDuplicateAlert = false
+        showingDeleteConfirmation = false
+        editingTemplate = template
+    }
 
-        if await templateManager.duplicateTemplate(template) != nil {
-            print("✅ Template duplicated successfully: \(duplicateName)")
+    private func presentDuplicate() {
+        // Ensure delete alert isn’t also pending
+        showingDeleteConfirmation = false
+        editingTemplate = nil
+        showDuplicateDialog()
+    }
+
+    private func presentDeleteConfirmation() {
+        // Ensure duplicate alert isn’t also pending
+        showingDuplicateAlert = false
+        editingTemplate = nil
+        showingDeleteConfirmation = true
+    }
+
+    private func duplicateTemplate() async {
+        let name = duplicateName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+
+        // Ensure no edit sheet is active when duplicating
+        editingTemplate = nil
+
+        if let newTemplate = await templateManager.createCustomTemplate(name: name,
+                                                                        basedOn: template,
+                                                                        fieldConfigs: nil) {
+            print("✅ Template duplicated successfully: \(name)")
+            // Open the builder on the new copy for immediate edits
+            editingTemplate = newTemplate
         } else {
             print("❌ Failed to duplicate template")
         }
     }
 
     private func deleteTemplate() async {
+        // Ensure no conflicting sheets are active
+        editingTemplate = nil
+        showingDuplicateAlert = false
+        showingWriteupForm = false
+
         if await templateManager.deleteTemplate(template) {
             print("✅ Template deleted successfully: \(template.name ?? "Unknown")")
-            // Navigation back will happen automatically since template is deleted
+            // Explicitly dismiss to clear navigation selection and avoid re-presentations
+            dismiss()
         } else {
             print("❌ Failed to delete template")
         }
